@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { db } from './db.ts';
-import { Payment } from '../src/types/index.ts';
+import type { Payment } from '../src/types/index.ts';
 
 export interface PaymentOrderRequest {
   dealerId: string;

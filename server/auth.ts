@@ -1,8 +1,8 @@
 import crypto from 'crypto';
-import { Request, Response, NextFunction } from 'express';
-import { db } from './db';
-import { User, UserRole } from '../src/types';
-import { sanitizeUser } from './sanitizer';
+import type { Request, Response, NextFunction } from 'express';
+import { db } from './db.ts';
+import type { User, UserRole } from '../src/types/index.ts';
+import { sanitizeUser } from './sanitizer.ts';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'spp_nestora_super_secure_jwt_secret_2026_prod';
 

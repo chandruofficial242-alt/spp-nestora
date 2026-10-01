@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { 
+import type { 
   User, 
   Property, 
   Enquiry, 
@@ -11,7 +11,7 @@ import {
   AppNotification, 
   PropertyStatus,
   DealerStatus
-} from '../src/types';
+} from '../src/types/index.ts';
 import { 
   INITIAL_SETTINGS, 
   INITIAL_USERS, 
@@ -20,7 +20,7 @@ import {
   INITIAL_SITE_VISITS, 
   INITIAL_PAYMENTS, 
   INITIAL_NOTIFICATIONS 
-} from '../src/data/seedData';
+} from '../src/data/seedData.ts';
 
 export interface TermsRecord {
   id: string;

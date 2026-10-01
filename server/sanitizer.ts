@@ -1,4 +1,4 @@
-import { Property, User, AdminSettings } from '../src/types';
+import type { Property, User, AdminSettings } from '../src/types/index.ts';
 
 /**
  * Strips all dealer private contact information from property objects.

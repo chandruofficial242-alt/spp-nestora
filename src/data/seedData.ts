@@ -1,4 +1,4 @@
-import { User, Property, Enquiry, SiteVisit, Payment, AdminSettings, AppNotification } from '../types';
+import type { User, Property, Enquiry, SiteVisit, Payment, AdminSettings, AppNotification } from '../types/index.ts';
 
 export const TN_DISTRICTS = [
   'Chennai',

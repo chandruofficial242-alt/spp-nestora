@@ -1,11 +1,11 @@
 import express from 'express';
 import { db } from './db.ts';
-import { authenticate, requireRole, generateAuthToken, AuthenticatedRequest } from './auth.ts';
+import { authenticate, requireRole, generateAuthToken, type AuthenticatedRequest } from './auth.ts';
 import { sanitizePropertyForPublic, sanitizePropertiesListForPublic, sanitizeUser } from './sanitizer.ts';
 import { paymentGateway } from './paymentService.ts';
 import { uploadMiddleware, processUploadedFile } from './uploadService.ts';
 import { createRateLimiter } from './rateLimiter.ts';
-import { User, Property, PropertyStatus, EnquiryStatus, SiteVisitStatus, DealerStatus } from '../src/types/index.ts';
+import type { User, Property, PropertyStatus, EnquiryStatus, SiteVisitStatus, DealerStatus } from '../src/types/index.ts';
 
 export const router = express.Router();
 
