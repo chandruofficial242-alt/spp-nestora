@@ -74,6 +74,7 @@ class EmailService {
             host: 'smtp.gmail.com',
             port: 465,
             secure: true, // SSL
+            family: 4, // Explicit IPv4 to prevent ENETUNREACH in Render/Linux containers
             auth: {
               user: config.user,
               pass: config.pass
@@ -84,12 +85,13 @@ class EmailService {
             connectionTimeout: 15000,
             greetingTimeout: 15000,
             socketTimeout: 30000
-          });
+          } as any);
         } else {
           this.transporter = nodemailer.createTransport({
             host: config.host || 'localhost',
             port: config.port,
             secure: config.secure,
+            family: 4, // Explicit IPv4
             auth: {
               user: config.user,
               pass: config.pass
@@ -100,10 +102,10 @@ class EmailService {
             connectionTimeout: 15000,
             greetingTimeout: 15000,
             socketTimeout: 30000
-          });
+          } as any);
         }
         this.isConfigured = true;
-        console.log(`[Email Service] SMTP Transport configured for ${config.isGmail ? 'Gmail Service (smtp.gmail.com:465 SSL)' : config.host + ':' + config.port} (Sender: ${config.user})`);
+        console.log(`[Email Service] SMTP Transport configured for ${config.isGmail ? 'Gmail Service (smtp.gmail.com:465 SSL, IPv4)' : config.host + ':' + config.port} (Sender: ${config.user})`);
         return true;
       } catch (err: any) {
         console.warn('[Email Service] Failed to initialize SMTP transport:', err.message || err);
