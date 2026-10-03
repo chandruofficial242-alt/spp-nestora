@@ -43,7 +43,7 @@ export function createRateLimiter(options: {
 }
 
 // Cleanup stale entries every 10 minutes
-setInterval(() => {
+const cleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [key, record] of rateLimitStore.entries()) {
     if (now > record.resetAt) {
@@ -51,3 +51,8 @@ setInterval(() => {
     }
   }
 }, 10 * 60 * 1000);
+
+if (cleanupTimer.unref) {
+  cleanupTimer.unref();
+}
+

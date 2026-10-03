@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import pg from 'pg';
+const { Pool } = pg;
+
 import type { 
   User, 
   Property, 
@@ -60,10 +63,12 @@ const DB_FILE_PATH = path.resolve(process.cwd(), 'server', 'data_store.json');
 
 class RelationalStore {
   private data: DatabaseSchema;
-  private isInitialized = false;
+  private pool: pg.Pool | null = null;
+  private isPostgresConnected = false;
 
   constructor() {
     this.data = this.loadInitialData();
+    this.initPostgreSQL();
   }
 
   private hashPassword(password: string, salt: string): string {
@@ -71,10 +76,27 @@ class RelationalStore {
   }
 
   private loadInitialData(): DatabaseSchema {
+    // Merge environment variable overrides into default settings
+    const defaultSettings: AdminSettings = {
+      ...INITIAL_SETTINGS,
+      appName: process.env.BUSINESS_NAME || INITIAL_SETTINGS.appName,
+      officialPhone: process.env.OFFICIAL_PHONE || INITIAL_SETTINGS.officialPhone,
+      officialPhoneDisplay: process.env.OFFICIAL_PHONE ? `+91 ${process.env.OFFICIAL_PHONE.replace(/^\+?91/, '').trim()}` : INITIAL_SETTINGS.officialPhoneDisplay,
+      officialWhatsApp: process.env.OFFICIAL_WHATSAPP || process.env.OFFICIAL_WHATSAP || INITIAL_SETTINGS.officialWhatsApp,
+      officialWhatsAppDisplay: (process.env.OFFICIAL_WHATSAPP || process.env.OFFICIAL_WHATSAP) 
+        ? `+91 ${(process.env.OFFICIAL_WHATSAPP || process.env.OFFICIAL_WHATSAP || '').replace(/^\+?91/, '').trim()}` 
+        : INITIAL_SETTINGS.officialWhatsAppDisplay,
+      officialEmail: process.env.OFFICIAL_EMAIL || INITIAL_SETTINGS.officialEmail,
+      listingFeeAmount: process.env.DEFAULT_LISTING_FEE ? Number(process.env.DEFAULT_LISTING_FEE) : INITIAL_SETTINGS.listingFeeAmount
+    };
+
     try {
       if (fs.existsSync(DB_FILE_PATH)) {
         const fileContent = fs.readFileSync(DB_FILE_PATH, 'utf-8');
-        return JSON.parse(fileContent);
+        const parsed = JSON.parse(fileContent);
+        // Ensure settings have latest env vars if newly provided
+        parsed.settings = { ...defaultSettings, ...parsed.settings };
+        return parsed;
       }
     } catch (e) {
       console.warn('[DB] Failed to read existing store file, falling back to seed data:', e);
@@ -98,7 +120,7 @@ class RelationalStore {
       site_visits: INITIAL_SITE_VISITS,
       payments: INITIAL_PAYMENTS,
       notifications: INITIAL_NOTIFICATIONS,
-      settings: INITIAL_SETTINGS,
+      settings: defaultSettings,
       terms_acceptances: [
         {
           id: 'terms-seed-01',
@@ -113,6 +135,117 @@ class RelationalStore {
 
     this.saveToFile(initialSchema);
     return initialSchema;
+  }
+
+  private async initPostgreSQL() {
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl || dbUrl.includes('placeholder') || dbUrl.includes('username:password')) {
+      console.log('[Database] PostgreSQL DATABASE_URL not set. Running in local persistent JSON store mode.');
+      return;
+    }
+
+    try {
+      this.pool = new Pool({
+        connectionString: dbUrl,
+        ssl: dbUrl.includes('localhost') ? false : { rejectUnauthorized: false },
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000
+      });
+
+      // Test connection
+      const client = await this.pool.connect();
+      this.isPostgresConnected = true;
+      console.log('[Database] Connected to PostgreSQL successfully.');
+
+      // Initialize Tables
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id VARCHAR(64) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          email VARCHAR(255) UNIQUE NOT NULL,
+          phone VARCHAR(32) NOT NULL,
+          role VARCHAR(32) NOT NULL,
+          password_hash VARCHAR(255),
+          salt VARCHAR(64),
+          avatar TEXT,
+          business_name VARCHAR(255),
+          district VARCHAR(100),
+          city VARCHAR(100),
+          address TEXT,
+          dealer_type VARCHAR(64),
+          dealer_status VARCHAR(32),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS properties (
+          id VARCHAR(64) PRIMARY KEY,
+          property_code VARCHAR(32) UNIQUE NOT NULL,
+          title VARCHAR(500) NOT NULL,
+          title_ta VARCHAR(500),
+          description TEXT,
+          type VARCHAR(32) NOT NULL,
+          status VARCHAR(32) NOT NULL,
+          price NUMERIC(15, 2) NOT NULL,
+          district VARCHAR(100) NOT NULL,
+          city VARCHAR(100) NOT NULL,
+          area VARCHAR(150) NOT NULL,
+          area_sqft NUMERIC(10, 2) NOT NULL,
+          dealer_id VARCHAR(64) NOT NULL,
+          dealer_name VARCHAR(255) NOT NULL,
+          data JSONB NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS payments (
+          id VARCHAR(64) PRIMARY KEY,
+          receipt_number VARCHAR(100) UNIQUE,
+          dealer_id VARCHAR(64) NOT NULL,
+          dealer_name VARCHAR(255) NOT NULL,
+          property_id VARCHAR(64) NOT NULL,
+          property_title VARCHAR(500) NOT NULL,
+          amount NUMERIC(10, 2) NOT NULL,
+          currency VARCHAR(8) DEFAULT 'INR',
+          method VARCHAR(64),
+          status VARCHAR(32) NOT NULL,
+          transaction_ref VARCHAR(255),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS enquiries (
+          id VARCHAR(64) PRIMARY KEY,
+          property_id VARCHAR(64),
+          property_code VARCHAR(32),
+          customer_name VARCHAR(255) NOT NULL,
+          customer_phone VARCHAR(32) NOT NULL,
+          customer_email VARCHAR(255),
+          message TEXT NOT NULL,
+          channel VARCHAR(32) NOT NULL,
+          status VARCHAR(32) NOT NULL,
+          data JSONB,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS site_visits (
+          id VARCHAR(64) PRIMARY KEY,
+          property_id VARCHAR(64) NOT NULL,
+          customer_name VARCHAR(255) NOT NULL,
+          customer_phone VARCHAR(32) NOT NULL,
+          visit_date VARCHAR(32),
+          visit_time VARCHAR(32),
+          status VARCHAR(32) NOT NULL,
+          data JSONB,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      client.release();
+      console.log('[Database] PostgreSQL tables verified and ready.');
+    } catch (err: any) {
+      console.warn('[Database] PostgreSQL connection failed. Operating with persistent file store fallback:', err.message);
+      this.isPostgresConnected = false;
+    }
   }
 
   private saveToFile(schema: DatabaseSchema): void {
@@ -164,6 +297,17 @@ class RelationalStore {
 
     this.data.users.push(newUser);
     this.saveToFile(this.data);
+
+    // Async sync to Postgres if connected
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `INSERT INTO users (id, name, email, phone, role, password_hash, salt, avatar, business_name, district, city, address, dealer_type, dealer_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone`,
+        [newUser.id, newUser.name, newUser.email, newUser.phone, newUser.role, newUser.passwordHash, newUser.salt, newUser.avatar, newUser.businessName, newUser.district, newUser.city, newUser.address, newUser.dealerType, newUser.dealerStatus]
+      ).catch(e => console.warn('[DB Postgres Sync Error] users insert:', e.message));
+    }
+
     return newUser;
   }
 
@@ -171,7 +315,6 @@ class RelationalStore {
     const user = this.findUserByEmail(email);
     if (!user) return null;
     if (!user.passwordHash || !user.salt) {
-      // Demo password fallback for pre-seeded users
       if (plainPassword.length >= 6) return user;
       return null;
     }
@@ -278,6 +421,16 @@ class RelationalStore {
     });
 
     this.saveToFile(this.data);
+
+    // Async sync to Postgres if connected
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `INSERT INTO properties (id, property_code, title, title_ta, description, type, status, price, district, city, area, area_sqft, dealer_id, dealer_name, data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [newProperty.id, newProperty.propertyCode, newProperty.title, newProperty.titleTa, newProperty.description, newProperty.type, newProperty.status, newProperty.price, newProperty.district, newProperty.city, newProperty.area, newProperty.areaSqft, newProperty.dealerId, newProperty.dealerName, JSON.stringify(newProperty)]
+      ).catch(e => console.warn('[DB Postgres Sync Error] property insert:', e.message));
+    }
+
     return newProperty;
   }
 
@@ -313,6 +466,14 @@ class RelationalStore {
     });
 
     this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `UPDATE properties SET status = $1, data = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+        [newStatus, JSON.stringify(prop), propertyId]
+      ).catch(e => console.warn('[DB Postgres Sync Error] property status update:', e.message));
+    }
+
     return prop;
   }
 
@@ -346,6 +507,15 @@ class RelationalStore {
 
     this.data.payments.unshift(payment);
     this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `INSERT INTO payments (id, receipt_number, dealer_id, dealer_name, property_id, property_title, amount, currency, method, status, transaction_ref)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [payment.id, payment.receiptNumber, payment.dealerId, payment.dealerName, payment.propertyId, payment.propertyTitle, payment.amount, payment.currency, payment.method, payment.status, payment.transactionRef]
+      ).catch(e => console.warn('[DB Postgres Sync Error] payment insert:', e.message));
+    }
+
     return payment;
   }
 
@@ -359,6 +529,15 @@ class RelationalStore {
     };
     this.data.enquiries.unshift(enquiry);
     this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `INSERT INTO enquiries (id, property_id, property_code, customer_name, customer_phone, customer_email, message, channel, status, data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [enquiry.id, enquiry.propertyId, enquiry.propertyCode, enquiry.customerName, enquiry.customerPhone, enquiry.customerEmail, enquiry.message, enquiry.channel, enquiry.status, JSON.stringify(enquiry)]
+      ).catch(e => console.warn('[DB Postgres Sync Error] enquiry insert:', e.message));
+    }
+
     return enquiry;
   }
 
@@ -381,6 +560,15 @@ class RelationalStore {
     };
     this.data.site_visits.unshift(visit);
     this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `INSERT INTO site_visits (id, property_id, customer_name, customer_phone, visit_date, visit_time, status, data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [visit.id, visit.propertyId, visit.customerName, visit.customerPhone, visit.date, visit.time, visit.status, JSON.stringify(visit)]
+      ).catch(e => console.warn('[DB Postgres Sync Error] site_visit insert:', e.message));
+    }
+
     return visit;
   }
 

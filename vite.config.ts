@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import expressApp from './server/index.ts';
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -9,7 +8,10 @@ export default defineConfig({
     {
       name: 'api-server-middleware',
       configureServer(server) {
-        server.middlewares.use(expressApp);
+        return async () => {
+          const { app } = await import('./server/app.ts');
+          server.middlewares.use(app);
+        };
       }
     }
   ],

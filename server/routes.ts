@@ -471,3 +471,21 @@ router.get('/admin/revenue', authenticate, requireRole(['admin']), (req, res) =>
     payments: successfulPayments
   });
 });
+
+// ==========================================
+// 8. SYSTEM SETTINGS
+// ==========================================
+
+router.get('/settings', (_req, res) => {
+  return res.json(db.getSettings());
+});
+
+router.patch('/settings', authenticate, requireRole(['admin']), (req, res) => {
+  try {
+    const updated = db.updateSettings(req.body);
+    return res.json({ success: true, settings: updated });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to update settings' });
+  }
+});
+

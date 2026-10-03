@@ -587,6 +587,23 @@
   ],
   "enquiries": [
     {
+      "propertyId": "prop-001",
+      "propertyCode": "SPP-CHN-000101",
+      "propertyTitle": "OMR Sholinganallur Plot",
+      "propertyType": "house_sale",
+      "propertyLocation": "Tamil Nadu",
+      "propertyPrice": 0,
+      "dealerId": "admin-desk",
+      "customerName": "Anand Kumar",
+      "customerPhone": "+91 98401 22334",
+      "channel": "whatsapp",
+      "message": "Interested in site visit this Saturday.",
+      "status": "new",
+      "id": "enq-1790856273887",
+      "createdAt": "2026-10-01T12:04:33.887Z",
+      "updatedAt": "2026-10-01T12:04:33.887Z"
+    },
+    {
       "id": "enq-001",
       "propertyId": "prop-001",
       "propertyCode": "SPP-CHN-000101",
@@ -630,6 +647,22 @@
   ],
   "site_visits": [
     {
+      "propertyId": "prop-001",
+      "propertyCode": "SPP-CHN-000101",
+      "propertyTitle": "OMR Sholinganallur Plot",
+      "propertyAddress": "Plot 14, OMR, Chennai",
+      "dealerId": "admin-desk",
+      "customerId": "guest",
+      "customerName": "Anand Kumar",
+      "customerPhone": "+91 98401 22334",
+      "date": "2026-10-05",
+      "time": "10:30 AM",
+      "status": "requested",
+      "notes": "Coordinated via SPP Nestora Admin Desk",
+      "id": "sv-1790856273895",
+      "createdAt": "2026-10-01T12:04:33.895Z"
+    },
+    {
       "id": "sv-001",
       "propertyId": "prop-001",
       "propertyCode": "SPP-CHN-000101",
@@ -647,6 +680,21 @@
     }
   ],
   "payments": [
+    {
+      "id": "pay-1790856273908",
+      "receiptNumber": "SPP-REC-2026-1816",
+      "dealerId": "dealer-01",
+      "dealerName": "Kovai Premier Realties",
+      "propertyId": "prop-new-test-01",
+      "propertyTitle": "New Villa Listing",
+      "amount": 10,
+      "currency": "INR",
+      "purpose": "Property Listing Fee — ₹10",
+      "method": "upi",
+      "status": "success",
+      "transactionRef": "SB-TXN-1790856273907-ff8714",
+      "createdAt": "2026-10-01T12:04:33.908Z"
+    },
     {
       "id": "pay-1790844498341",
       "receiptNumber": "SPP-REC-2026-1418",
@@ -756,6 +804,14 @@
       "termsVersion": "v1.0",
       "language": "en",
       "acceptedAt": "2026-02-01T08:00:00Z"
+    },
+    {
+      "userEmail": "testuser@example.com",
+      "ipAddress": "127.0.0.1",
+      "termsVersion": "v1.0",
+      "language": "ta",
+      "id": "terms-1790856273879",
+      "acceptedAt": "2026-10-01T12:04:33.879Z"
     }
   ],
   "status_history": []

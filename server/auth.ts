@@ -4,7 +4,8 @@ import { db } from './db.ts';
 import type { User, UserRole } from '../src/types/index.ts';
 import { sanitizeUser } from './sanitizer.ts';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'spp_nestora_super_secure_jwt_secret_2026_prod';
+const JWT_SECRET = process.env.SESSION_SECRET || process.env.JWT_SECRET || 'spp_nestora_super_secure_jwt_secret_2026_prod';
+
 
 export interface AuthTokenPayload {
   userId: string;
