@@ -107,12 +107,14 @@ class EmailService {
   public async verifyConnection(): Promise<{ verified: boolean; error?: string }> {
     const config = this.getSmtpConfig();
     if (!config.user || !config.pass) {
+      console.log('[Email Service] SMTP credentials not configured in environment (SMTP_USER/SMTP_PASSWORD missing). Notification logged safely.');
       return { verified: false, error: 'SMTP credentials not provided in environment' };
     }
 
     this.initTransport();
 
     if (!this.transporter) {
+      console.warn('[Email Service] SMTP transporter could not be initialized');
       return { verified: false, error: 'Transporter could not be created' };
     }
 
@@ -121,9 +123,89 @@ class EmailService {
       console.log('[Email Service] SMTP connection verified');
       return { verified: true };
     } catch (err: any) {
-      console.warn('[Email Service] SMTP authentication failed:', err.message || err);
-      return { verified: false, error: err.message || 'SMTP verification failed' };
+      const safeError = err.message || 'SMTP verification failed';
+      console.warn('[Email Service] SMTP authentication failed:', safeError);
+      return { verified: false, error: safeError };
     }
+  }
+
+  public async getDiagnosticStatus(): Promise<{
+    configured: boolean;
+    provider: string;
+    host: string;
+    port: number;
+    secure: boolean;
+    senderEmail: string;
+    recipientEmail: string;
+    hasPassword: boolean;
+    verified: boolean;
+    verifyError?: string;
+  }> {
+    const config = this.getSmtpConfig();
+    const hasCreds = Boolean(config.user && config.pass);
+    let verified = false;
+    let verifyError: string | undefined;
+
+    if (hasCreds) {
+      const check = await this.verifyConnection();
+      verified = check.verified;
+      verifyError = check.error;
+    }
+
+    return {
+      configured: hasCreds,
+      provider: config.isGmail ? 'Gmail Service (smtp.gmail.com)' : (config.host || 'none'),
+      host: config.host || (config.isGmail ? 'smtp.gmail.com' : 'none'),
+      port: config.port,
+      secure: config.secure,
+      senderEmail: config.user ? `${config.user.slice(0, 3)}***@${config.user.split('@')[1] || ''}` : 'Not set',
+      recipientEmail: config.adminEmail,
+      hasPassword: Boolean(config.pass),
+      verified,
+      verifyError
+    };
+  }
+
+  public async sendTestEmail(): Promise<{ success: boolean; delivered: boolean; recipient: string; error?: string }> {
+    const config = this.getSmtpConfig();
+    const recipient = config.adminEmail;
+
+    const payload: EmailPayload = {
+      subject: `SPP Nestora – Production SMTP Test (${new Date().toLocaleTimeString('en-IN')})`,
+      text: `SPP Nestora – Production SMTP Test
+
+This is an automated verification email from SPP Nestora Production API Server.
+If you are seeing this message, your Gmail SMTP / App Password integration is operating successfully!
+
+Timestamp:
+${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (IST)
+
+Recipient:
+${recipient}
+
+Status:
+SUCCESS - Live Delivery Verified
+`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; border: 1px solid #10b981; border-radius: 12px; overflow: hidden; background: #ffffff;">
+          <div style="background: #0f3a22; color: #ffffff; padding: 20px; text-align: center;">
+            <h2 style="margin: 0; font-size: 20px;">SPP Nestora SMTP Test</h2>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #a7f3d0;">Live Email Notification Verification</p>
+          </div>
+          <div style="padding: 24px; color: #1e293b; font-size: 14px; line-height: 1.6;">
+            <p style="margin-top: 0;">This email confirms that the official <strong>SPP Nestora</strong> email notification system is functioning properly on Render production.</p>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+              <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Destination:</td><td style="padding: 8px 0; font-weight: bold; color: #0f3a22;">${recipient}</td></tr>
+              <tr><td style="padding: 8px 0; color: #64748b;">Delivered At:</td><td style="padding: 8px 0;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (IST)</td></tr>
+              <tr><td style="padding: 8px 0; color: #64748b;">Status:</td><td style="padding: 8px 0;"><span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">ACTIVE & VERIFIED</span></td></tr>
+            </table>
+          </div>
+        </div>
+      `
+    };
+
+    const res = await this.sendNotification(payload);
+    return { ...res, recipient };
   }
 
   public async sendNotification(payload: EmailPayload): Promise<{ success: boolean; delivered: boolean; error?: string }> {
@@ -131,6 +213,7 @@ class EmailService {
     const recipient = config.adminEmail;
 
     console.log('[Email Service] Attempting admin notification...');
+    console.log(`[Email Service] Sending to: ${recipient}`);
     console.log(`[Admin Email Notification Dispatch]
 To: ${recipient}
 Subject: ${payload.subject}
@@ -145,6 +228,8 @@ Timestamp: ${new Date().toISOString()}
       return { success: true, delivered: false };
     }
 
+    console.log('[Email Service] SMTP transporter ready');
+
     try {
       const fromAddress = process.env.SMTP_FROM || process.env.EMAIL_FROM || `"${config.appName}" <${config.user}>`;
 
@@ -157,12 +242,13 @@ Timestamp: ${new Date().toISOString()}
       });
 
       console.log('[Email Service] SMTP connection verified');
+      console.log('[Email Service] Email sent successfully');
       console.log(`[Email Service] Admin notification sent successfully to ${recipient}`);
       return { success: true, delivered: true };
     } catch (err: any) {
       const safeError = err.message || 'Unknown SMTP error';
       console.warn('[Email Service] SMTP authentication failed or delivery error');
-      console.warn(`[Email Service] Email notification failed: ${safeError}`);
+      console.warn(`[Email Service] Email send failed: ${safeError}`);
       return { success: false, delivered: false, error: safeError };
     }
   }

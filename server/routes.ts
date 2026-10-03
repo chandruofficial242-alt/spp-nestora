@@ -19,7 +19,7 @@ const paymentLimiter = createRateLimiter({ windowMs: 1 * 60 * 1000, maxRequests:
 // 1. AUTHENTICATION & TERMS
 // ==========================================
 
-router.post('/auth/register', registerLimiter, (req, res) => {
+router.post('/auth/register', registerLimiter, async (req, res) => {
   try {
     const { name, email, phone, password, role, businessName, district, city, address, dealerType } = req.body;
 
@@ -73,9 +73,17 @@ router.post('/auth/register', registerLimiter, (req, res) => {
 
     // Send Email Notification to chandruking901@gmail.com
     if (newUser.role === 'dealer') {
-      emailService.sendDealerRegistrationNotification(newUser as User, 0).catch(e => console.warn('[Email Error]:', e.message));
+      try {
+        await emailService.sendDealerRegistrationNotification(newUser as User, 0);
+      } catch (e: any) {
+        console.warn('[Email Service Dealer Registration Error]:', e.message || e);
+      }
     } else {
-      emailService.sendCustomerRegistrationNotification(newUser as User).catch(e => console.warn('[Email Error]:', e.message));
+      try {
+        await emailService.sendCustomerRegistrationNotification(newUser as User);
+      } catch (e: any) {
+        console.warn('[Email Service Customer Registration Error]:', e.message || e);
+      }
     }
 
     const token = generateAuthToken(newUser as User);
@@ -243,7 +251,7 @@ router.get('/properties/:id', (req, res) => {
 });
 
 // Dealer submission
-router.post('/properties', authenticate, requireRole(['dealer', 'admin']), (req: AuthenticatedRequest, res) => {
+router.post('/properties', authenticate, requireRole(['dealer', 'admin']), async (req: AuthenticatedRequest, res) => {
   try {
     const dealer = req.user!;
     
@@ -265,7 +273,11 @@ router.post('/properties', authenticate, requireRole(['dealer', 'admin']), (req:
     });
 
     // Email Notification to Admin
-    emailService.sendPropertyPendingApprovalNotification(created).catch(e => console.warn('[Email Error]:', e.message));
+    try {
+      await emailService.sendPropertyPendingApprovalNotification(created);
+    } catch (e: any) {
+      console.warn('[Email Service Property Submission Error]:', e.message || e);
+    }
 
     return res.status(201).json({ success: true, property: created });
   } catch (err: any) {
@@ -362,7 +374,11 @@ router.post('/payments/verify', paymentLimiter, authenticate, requireRole(['deal
     });
 
     // Email Notification to Admin
-    emailService.sendPaymentVerifiedNotification(result.paymentRecord).catch(e => console.warn('[Email Error]:', e.message));
+    try {
+      await emailService.sendPaymentVerifiedNotification(result.paymentRecord);
+    } catch (e: any) {
+      console.warn('[Email Service Payment Verified Error]:', e.message || e);
+    }
 
     return res.json(result);
   } catch (err: any) {
@@ -409,7 +425,7 @@ router.get('/payments', authenticate, (req: AuthenticatedRequest, res) => {
 // 6. ENQUIRIES CRM & SITE VISITS
 // ==========================================
 
-router.post('/enquiries', (req, res) => {
+router.post('/enquiries', async (req, res) => {
   try {
     const { propertyId, propertyCode, propertyTitle, propertyType, propertyLocation, propertyPrice, dealerId, customerId, customerName, customerPhone, customerEmail, channel, message, preferredTime } = req.body;
 
@@ -446,7 +462,11 @@ router.post('/enquiries', (req, res) => {
     });
 
     // Email Notification to Admin (chandruking901@gmail.com)
-    emailService.sendCustomerEnquiryNotification(enquiry).catch(e => console.warn('[Email Error]:', e.message));
+    try {
+      await emailService.sendCustomerEnquiryNotification(enquiry);
+    } catch (e: any) {
+      console.warn('[Email Service Enquiry Error]:', e.message || e);
+    }
 
     return res.status(201).json({ success: true, enquiry });
   } catch (err: any) {
@@ -478,7 +498,7 @@ router.patch('/enquiries/:id', authenticate, requireRole(['admin']), (req: Authe
   return res.json({ success: true, enquiry: updated });
 });
 
-router.post('/site-visits', (req, res) => {
+router.post('/site-visits', async (req, res) => {
   try {
     const { propertyId, propertyCode, propertyTitle, propertyAddress, dealerId, customerId, customerName, customerPhone, date, time, notes } = req.body;
 
@@ -512,7 +532,11 @@ router.post('/site-visits', (req, res) => {
     });
 
     // Email Notification to Admin
-    emailService.sendSiteVisitNotification(visit).catch(e => console.warn('[Email Error]:', e.message));
+    try {
+      await emailService.sendSiteVisitNotification(visit);
+    } catch (e: any) {
+      console.warn('[Email Service Site Visit Error]:', e.message || e);
+    }
 
     return res.status(201).json({ success: true, siteVisit: visit });
   } catch (err: any) {
@@ -614,4 +638,27 @@ router.patch('/settings', authenticate, requireRole(['admin']), (req, res) => {
     return res.status(500).json({ error: err.message || 'Failed to update settings' });
   }
 });
+
+// ==========================================
+// 10. EMAIL DIAGNOSTICS (SAFE - NO SECRETS)
+// ==========================================
+
+router.get('/diagnostics/email', async (_req, res) => {
+  try {
+    const status = await emailService.getDiagnosticStatus();
+    return res.json(status);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Diagnostic check failed' });
+  }
+});
+
+router.post('/diagnostics/email/test', async (_req, res) => {
+  try {
+    const result = await emailService.sendTestEmail();
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Test email failed' });
+  }
+});
+
 

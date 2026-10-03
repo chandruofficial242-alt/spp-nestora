@@ -179,6 +179,17 @@
       "dealerStatus": "pending",
       "passwordHash": "47a04d3681222ae26d92fe3025936c8f9d906c12e597b2fa00a99821f19ef8453e36ee0be281c1ea2403c87929d73fd71af3b45615601fc1c12d20aee4cad6a6",
       "salt": "507125c038bc25859d1407b071ef23a5"
+    },
+    {
+      "id": "usr-1791023934394-111",
+      "name": "Ramesh Krishnan",
+      "email": "ramesh.1791023934389@example.com",
+      "phone": "+91 98409 87654",
+      "role": "customer",
+      "avatar": "https://api.dicebear.com/7.x/initials/svg?seed=Ramesh%20Krishnan",
+      "createdAt": "2026-10-03T10:38:54.394Z",
+      "passwordHash": "050dd12b4fc72f9c3d32a4ca7292b606e9c3bb71df07a2cbb55eec123f3a4870501a0cac1f341689c5134d046ab4da4a00b30fec23adcf4fc5ae2ead9d0b2c93",
+      "salt": "85397b2b786852edde1655b8106381f9"
     }
   ],
   "properties": [
@@ -690,6 +701,24 @@
   ],
   "enquiries": [
     {
+      "propertyId": "general",
+      "propertyCode": "SPP-GEN",
+      "propertyTitle": "General Property Consultation",
+      "propertyType": "house_sale",
+      "propertyLocation": "Tamil Nadu Central Desk",
+      "propertyPrice": 0,
+      "dealerId": "admin-desk",
+      "customerName": "Karthik Raja",
+      "customerPhone": "+91 97156 73055",
+      "customerEmail": "karthik.raja@example.com",
+      "channel": "website",
+      "message": "Hello SPP Nestora team, I would like assistance with verified properties.",
+      "status": "new",
+      "id": "enq-1791023934368",
+      "createdAt": "2026-10-03T10:38:54.368Z",
+      "updatedAt": "2026-10-03T10:38:54.368Z"
+    },
+    {
       "propertyId": "general-desk",
       "propertyCode": "SPP-GEN-DESK",
       "propertyTitle": "General Property Inquiry - Diagnostic Test",
@@ -816,6 +845,22 @@
     }
   ],
   "site_visits": [
+    {
+      "propertyId": "prop-001",
+      "propertyCode": "SPP-CHN-000101",
+      "propertyTitle": "Premium 3BHK Villa in Anna Nagar West",
+      "propertyAddress": "12th Main Road, Anna Nagar West, Chennai",
+      "dealerId": "admin-desk",
+      "customerId": "guest",
+      "customerName": "Ramesh Krishnan",
+      "customerPhone": "+91 98409 87654",
+      "date": "2026-10-15",
+      "time": "04:00 PM",
+      "status": "requested",
+      "notes": "Please confirm site visit",
+      "id": "sv-1791023934403",
+      "createdAt": "2026-10-03T10:38:54.403Z"
+    },
     {
       "propertyId": "prop-001",
       "propertyCode": "SPP-CHN-000101",
@@ -1079,6 +1124,39 @@
   ],
   "notifications": [
     {
+      "isRead": false,
+      "targetRole": "admin",
+      "title": "Site Visit Scheduled by Ramesh Krishnan",
+      "titleTa": "தள பார்வை திட்டமிடப்பட்டது - Ramesh Krishnan",
+      "message": "Ramesh Krishnan requested visit for SPP-CHN-000101 on 2026-10-15 at 04:00 PM.",
+      "messageTa": "Ramesh Krishnan (+91 98409 87654) தள பார்வையை கோரியுள்ளார்.",
+      "link": "/admin",
+      "id": "notif-1791023934404-491",
+      "createdAt": "2026-10-03T10:38:54.404Z"
+    },
+    {
+      "isRead": false,
+      "targetRole": "admin",
+      "title": "New Customer Registered: Ramesh Krishnan",
+      "titleTa": "புதிய வாடிக்கையாளர் பதிவு: Ramesh Krishnan",
+      "message": "Ramesh Krishnan (ramesh.1791023934389@example.com, +91 98409 87654) registered as customer.",
+      "messageTa": "Ramesh Krishnan (ramesh.1791023934389@example.com) புதிய customer ஆக பதிவு செய்துள்ளார்.",
+      "link": "/admin",
+      "id": "notif-1791023934395-866",
+      "createdAt": "2026-10-03T10:38:54.395Z"
+    },
+    {
+      "isRead": false,
+      "targetRole": "admin",
+      "title": "New Customer Enquiry from Karthik Raja",
+      "titleTa": "புதிய வாடிக்கையாளர் விசாரணை - Karthik Raja",
+      "message": "Karthik Raja (+91 97156 73055) submitted enquiry: \"Hello SPP Nestora team, I would like assistance with verified properties....\"",
+      "messageTa": "Karthik Raja (+91 97156 73055) புதிய விசாரணையை சமர்ப்பித்துள்ளார்.",
+      "link": "/admin",
+      "id": "notif-1791023934369-426",
+      "createdAt": "2026-10-03T10:38:54.370Z"
+    },
+    {
       "id": "notif-1791018381909-191",
       "userId": "user-admin-01",
       "title": "New Dealer Registration – SPP Nestora",
@@ -1163,6 +1241,15 @@
       "language": "ta",
       "id": "terms-1790856273879",
       "acceptedAt": "2026-10-01T12:04:33.879Z"
+    },
+    {
+      "userId": "usr-1791023934394-111",
+      "userEmail": "ramesh.1791023934389@example.com",
+      "ipAddress": "127.0.0.1",
+      "termsVersion": "v1.0",
+      "language": "en",
+      "id": "terms-1791023934394",
+      "acceptedAt": "2026-10-03T10:38:54.394Z"
     }
   ],
   "status_history": []
