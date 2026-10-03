@@ -219,8 +219,8 @@ export class SandboxPaymentGateway implements IPaymentGateway {
 }
 
 // Instantiate proper gateway depending on environment
-const rzpKeyId = process.env.RAZORPAY_KEY_ID;
-const rzpKeySecret = process.env.RAZORPAY_KEY_SECRET;
+const rzpKeyId = (process.env.RAZORPAY_KEY_ID || '').trim();
+const rzpKeySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
 
 const isRealKeysConfigured = Boolean(
   rzpKeyId && 
@@ -230,7 +230,8 @@ const isRealKeysConfigured = Boolean(
 );
 
 export const paymentGateway: IPaymentGateway = isRealKeysConfigured
-  ? new RazorpayPaymentGateway(rzpKeyId!, rzpKeySecret!)
+  ? new RazorpayPaymentGateway(rzpKeyId, rzpKeySecret)
   : new SandboxPaymentGateway();
+
 
 console.log(`[SPP Nestora Payment] Gateway initialized: ${isRealKeysConfigured ? 'Live/Test Razorpay Gateway' : 'Sandbox Gateway (No live keys provided)'}`);

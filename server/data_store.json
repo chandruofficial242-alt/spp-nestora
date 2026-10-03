@@ -681,6 +681,36 @@
   ],
   "payments": [
     {
+      "id": "pay-1791004338855",
+      "receiptNumber": "SPP-REC-2026-3886",
+      "dealerId": "dealer-01",
+      "dealerName": "Kovai Premier Realties",
+      "propertyId": "prop-test-1791004338808",
+      "propertyTitle": "Luxury 3BHK Villa OMR",
+      "amount": 10,
+      "currency": "INR",
+      "purpose": "Property Listing Fee — ₹10",
+      "method": "upi",
+      "status": "success",
+      "transactionRef": "SB-TXN-1791004338855-ae8edf",
+      "createdAt": "2026-10-03T05:12:18.855Z"
+    },
+    {
+      "id": "pay-1791004338819",
+      "receiptNumber": "SPP-REC-2026-3325",
+      "dealerId": "dealer-01",
+      "dealerName": "Kovai Premier Realties",
+      "propertyId": "prop-test-1791004338808",
+      "propertyTitle": "Luxury 3BHK Villa OMR",
+      "amount": 10,
+      "currency": "INR",
+      "purpose": "Property Listing Fee — ₹10",
+      "method": "upi",
+      "status": "success",
+      "transactionRef": "SB-TXN-1791004338819-aecead",
+      "createdAt": "2026-10-03T05:12:18.819Z"
+    },
+    {
       "id": "pay-1790856273908",
       "receiptNumber": "SPP-REC-2026-1816",
       "dealerId": "dealer-01",

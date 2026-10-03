@@ -72,7 +72,7 @@ export const AddPropertyWizard: React.FC = () => {
 
   // Payment Options
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
-  const [upiId, setUpiId] = useState('dealer@okaxis');
+
 
   // Helpers
   const handleInputChange = (field: keyof Property, value: any) => {
@@ -229,21 +229,14 @@ export const AddPropertyWizard: React.FC = () => {
   const handlePaymentAndSubmit = async () => {
     setLoading(true);
     try {
-      const listingFee = settings.listingFeeAmount || 10;
       const tempPropId = `prop-${Date.now()}`;
       
-      // 1. Create order on backend
+      // 1. Create order on backend (Authoritative server-side ₹10 fee)
       const order = await apiService.createPaymentOrder(
         tempPropId,
         formData.title || 'Property Listing',
         paymentMethod
-      ).catch(() => ({
-        orderId: `order_local_${Date.now()}`,
-        amount: listingFee,
-        currency: 'INR',
-        keyId: 'rzp_test_placeholder',
-        isSandbox: true
-      }));
+      );
 
       // 2. Check if real Razorpay key is present
       const isRealRazorpay = order.keyId && order.keyId.startsWith('rzp_') && !order.keyId.includes('placeholder');
@@ -253,35 +246,54 @@ export const AddPropertyWizard: React.FC = () => {
         if (scriptLoaded && (window as any).Razorpay) {
           const options = {
             key: order.keyId,
-            amount: order.amount * 100,
-            currency: 'INR',
+            amount: Math.round(order.amount * 100),
+            currency: order.currency || 'INR',
             name: 'SPP Nestora',
-            description: `₹${listingFee} Property Listing Fee`,
+            description: `₹${order.amount} Property Listing Fee`,
             order_id: order.orderId,
+            modal: {
+              ondismiss: () => {
+                setLoading(false);
+                showToast('Payment was cancelled. Property was not submitted.', 'warning');
+              }
+            },
             handler: async (response: any) => {
-              // Verify on backend
-              const verifyRes = await apiService.verifyPayment({
-                orderId: order.orderId,
-                paymentId: response.razorpay_payment_id,
-                signature: response.razorpay_signature,
-                propertyId: tempPropId,
-                propertyTitle: formData.title || 'Property Listing',
-                method: paymentMethod
-              });
+              try {
+                setLoading(true);
+                // Verify HMAC SHA-256 signature on backend
+                const verifyRes = await apiService.verifyPayment({
+                  orderId: order.orderId,
+                  paymentId: response.razorpay_payment_id,
+                  signature: response.razorpay_signature,
+                  propertyId: tempPropId,
+                  propertyTitle: formData.title || 'Property Listing',
+                  method: paymentMethod
+                });
 
-              // Add property to application state
-              const result = await addProperty(formData, {
-                method: paymentMethod,
-                amount: listingFee
-              });
+                if (!verifyRes.success) {
+                  throw new Error('Payment signature verification failed.');
+                }
 
-              setReceipt(verifyRes.paymentRecord || result.receipt);
-              setCreatedProperty(result.property);
-              setCurrentStep(7);
-              confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+                // Add property to application state
+                const result = await addProperty(formData, {
+                  method: paymentMethod,
+                  amount: order.amount
+                });
+
+                setReceipt(verifyRes.paymentRecord || result.receipt);
+                setCreatedProperty(result.property);
+                setCurrentStep(7);
+                confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+                showToast('Payment successful! Property submitted for Admin review.', 'success');
+              } catch (verifyErr: any) {
+                console.error('Payment verification failed:', verifyErr);
+                showToast(verifyErr.message || 'Payment verification failed', 'error');
+              } finally {
+                setLoading(false);
+              }
             },
             prefill: {
-              name: currentUser?.name || 'Authorized Dealer',
+              name: currentUser?.businessName || currentUser?.name || 'Authorized Dealer',
               email: currentUser?.email || 'dealer@sppnestora.com',
               contact: currentUser?.phone || '9444012345'
             },
@@ -290,24 +302,34 @@ export const AddPropertyWizard: React.FC = () => {
 
           const rzp = new (window as any).Razorpay(options);
           rzp.open();
-          setLoading(false);
           return;
         }
       }
 
-      // 3. Sandbox / Dev Flow (Automatic Secure Simulation)
-      await new Promise(res => setTimeout(res, 900));
+      // 3. Sandbox / Dev Flow (Backend Simulated Verification)
+      const verifyRes = await apiService.verifyPayment({
+        orderId: order.orderId,
+        paymentId: `sim_pay_${Date.now()}`,
+        propertyId: tempPropId,
+        propertyTitle: formData.title || 'Property Listing',
+        method: paymentMethod
+      });
+
+      if (!verifyRes.success) {
+        throw new Error('Payment verification failed on server');
+      }
 
       const result = await addProperty(formData, {
         method: paymentMethod,
-        amount: listingFee
+        amount: order.amount
       });
 
       if (result.success) {
-        setReceipt(result.receipt);
+        setReceipt(verifyRes.paymentRecord || result.receipt);
         setCreatedProperty(result.property);
         setCurrentStep(7); // Success Step
         confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+        showToast('Listing fee recorded! Property submitted for Admin review.', 'success');
       }
     } catch (err: any) {
       console.error('Payment failure:', err);
@@ -316,6 +338,7 @@ export const AddPropertyWizard: React.FC = () => {
       setLoading(false);
     }
   };
+
 
   const stepsList = [
     { num: 1, label: t.addProperty.step1 },
@@ -765,46 +788,46 @@ export const AddPropertyWizard: React.FC = () => {
             </div>
           </div>
 
-          {/* Payment Method Selector */}
+          {/* Payment Methods Info */}
           <div className="max-w-md mx-auto space-y-3">
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Select Payment Method
+              Preferred Payment Method (Powered by Razorpay)
             </label>
 
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setPaymentMethod('upi')}
-                className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center space-y-1 transition ${
+                className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center space-y-1 transition cursor-pointer ${
                   paymentMethod === 'upi'
-                    ? 'border-brand-700 bg-brand-50 text-brand-900'
-                    : 'border-slate-200 bg-white text-slate-700'
+                    ? 'border-brand-700 bg-brand-50 text-brand-900 shadow-xs ring-1 ring-brand-700'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 <QrCode className="w-5 h-5 text-brand-700" />
-                <span>UPI / QR</span>
+                <span>UPI / QR Apps</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setPaymentMethod('card')}
-                className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center space-y-1 transition ${
+                className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center space-y-1 transition cursor-pointer ${
                   paymentMethod === 'card'
-                    ? 'border-brand-700 bg-brand-50 text-brand-900'
-                    : 'border-slate-200 bg-white text-slate-700'
+                    ? 'border-brand-700 bg-brand-50 text-brand-900 shadow-xs ring-1 ring-brand-700'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 <CreditCard className="w-5 h-5 text-brand-700" />
-                <span>Debit / Card</span>
+                <span>Debit / Credit</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setPaymentMethod('netbanking')}
-                className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center space-y-1 transition ${
+                className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center space-y-1 transition cursor-pointer ${
                   paymentMethod === 'netbanking'
-                    ? 'border-brand-700 bg-brand-50 text-brand-900'
-                    : 'border-slate-200 bg-white text-slate-700'
+                    ? 'border-brand-700 bg-brand-50 text-brand-900 shadow-xs ring-1 ring-brand-700'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 <Building2 className="w-5 h-5 text-brand-700" />
@@ -812,18 +835,16 @@ export const AddPropertyWizard: React.FC = () => {
               </button>
             </div>
 
-            {paymentMethod === 'upi' && (
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                <label className="block text-[11px] font-bold text-slate-700">UPI ID / VPA</label>
-                <input
-                  type="text"
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value)}
-                  placeholder="e.g. yourname@oksbi"
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white outline-hidden font-mono"
-                />
+            {/* Official Transparent Policy Notice */}
+            <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1.5 text-xs text-emerald-950">
+              <div className="flex items-center space-x-1.5 font-bold text-emerald-900">
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                <span>Official SPP Nestora Listing Policy</span>
               </div>
-            )}
+              <p className="leading-relaxed">
+                ₹10 Property Listing Fee is applicable for each property listing. No mandatory transaction commission is charged by SPP Nestora.
+              </p>
+            </div>
           </div>
 
           <div className="max-w-md mx-auto pt-2">
@@ -836,12 +857,12 @@ export const AddPropertyWizard: React.FC = () => {
               {loading ? (
                 <span className="flex items-center">
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  Processing Listing Fee Payment...
+                  Connecting to Secure Razorpay Gateway...
                 </span>
               ) : (
                 <>
                   <ShieldCheck className="w-5 h-5 text-emerald-300" />
-                  <span>Pay ₹{settings.listingFeeAmount || 10} & Submit for Approval</span>
+                  <span>Proceed to Pay ₹{settings.listingFeeAmount || 10} via Razorpay</span>
                 </>
               )}
             </button>
@@ -852,6 +873,7 @@ export const AddPropertyWizard: React.FC = () => {
 
         </div>
       )}
+
 
       {/* STEP 7: SUCCESS RECEIPT */}
       {currentStep === 7 && receipt && createdProperty && (
