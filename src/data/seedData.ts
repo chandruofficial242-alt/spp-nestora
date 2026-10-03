@@ -38,11 +38,11 @@ export const DISTRICT_LOCALITIES: Record<string, string[]> = {
 
 export const INITIAL_SETTINGS: AdminSettings = {
   appName: 'SPP Nestora',
-  officialPhone: '9444012345',
-  officialPhoneDisplay: '+91 94440 12345',
-  officialWhatsApp: '919444012345',
-  officialWhatsAppDisplay: '+91 94440 12345',
-  officialEmail: 'contact@sppnestora.com',
+  officialPhone: '9715673055',
+  officialPhoneDisplay: '+91 97156 73055',
+  officialWhatsApp: '919715673055',
+  officialWhatsAppDisplay: '+91 97156 73055',
+  officialEmail: 'chandruking901@gmail.com',
   supportHours: 'Mon - Sat: 9:00 AM - 8:00 PM IST',
   officeAddress: 'SPP Nestora HQ, 4th Floor, Anna Salai Commercial Hub, Chennai, Tamil Nadu 600002',
   listingFeeAmount: 10,
@@ -59,7 +59,7 @@ export const INITIAL_USERS: User[] = [
     id: 'user-admin-01',
     name: 'SPP Nestora Admin',
     email: 'admin@sppnestora.com',
-    phone: '+91 94440 12345',
+    phone: '+91 97156 73055',
     role: 'admin',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
     createdAt: '2026-01-01T10:00:00Z'

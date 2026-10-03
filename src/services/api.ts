@@ -273,7 +273,7 @@ export const apiService = {
     return data.siteVisit;
   },
 
-  // --- ADMIN DEALER OPERATIONS ---
+  // --- ADMIN OPERATIONS ---
   async getDealers(): Promise<User[]> {
     const res = await fetch(`${API_BASE}/admin/dealers`, {
       headers: getAuthHeader()
@@ -291,5 +291,30 @@ export const apiService = {
     if (!res.ok) throw new Error('Failed to update dealer status');
     const data = await res.json();
     return data.dealer;
+  },
+
+  async getAdminUsers(): Promise<User[]> {
+    const res = await fetch(`${API_BASE}/admin/users`, {
+      headers: getAuthHeader()
+    });
+    if (!res.ok) throw new Error('Failed to fetch admin users');
+    return res.json();
+  },
+
+  async getNotifications(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/notifications`, {
+      headers: getAuthHeader()
+    });
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  async markNotificationAsRead(id: string): Promise<void> {
+    await fetch(`${API_BASE}/notifications/${id}/read`, {
+      method: 'PATCH',
+      headers: getAuthHeader()
+    });
   }
 };
+
+

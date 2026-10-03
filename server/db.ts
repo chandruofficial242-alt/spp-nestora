@@ -94,8 +94,16 @@ class RelationalStore {
       if (fs.existsSync(DB_FILE_PATH)) {
         const fileContent = fs.readFileSync(DB_FILE_PATH, 'utf-8');
         const parsed = JSON.parse(fileContent);
-        // Ensure settings have latest env vars if newly provided
-        parsed.settings = { ...defaultSettings, ...parsed.settings };
+        // Ensure settings have latest env vars & updated official contact numbers
+        parsed.settings = {
+          ...parsed.settings,
+          ...defaultSettings,
+          officialPhone: defaultSettings.officialPhone,
+          officialPhoneDisplay: defaultSettings.officialPhoneDisplay,
+          officialWhatsApp: defaultSettings.officialWhatsApp,
+          officialWhatsAppDisplay: defaultSettings.officialWhatsAppDisplay,
+          officialEmail: defaultSettings.officialEmail
+        };
         return parsed;
       }
     } catch (e) {
@@ -236,6 +244,19 @@ class RelationalStore {
           visit_time VARCHAR(32),
           status VARCHAR(32) NOT NULL,
           data JSONB,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS notifications (
+          id VARCHAR(64) PRIMARY KEY,
+          user_id VARCHAR(64),
+          target_role VARCHAR(32),
+          title VARCHAR(500) NOT NULL,
+          title_ta VARCHAR(500),
+          message TEXT NOT NULL,
+          message_ta TEXT,
+          link TEXT,
+          is_read BOOLEAN DEFAULT FALSE,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
       `);
@@ -732,6 +753,82 @@ class RelationalStore {
     this.data.settings = { ...this.data.settings, ...newSettings };
     this.saveToFile(this.data);
     return this.data.settings;
+  }
+
+  // --- NOTIFICATION METHODS ---
+  public createNotification(notifData: Omit<AppNotification, 'id' | 'createdAt' | 'isRead'> & { isRead?: boolean; type?: string; userId?: string }): AppNotification {
+    const notif: AppNotification = {
+      isRead: false,
+      ...notifData,
+      id: `notif-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      createdAt: new Date().toISOString()
+    };
+    this.data.notifications.unshift(notif);
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `INSERT INTO notifications (id, user_id, target_role, title, title_ta, message, message_ta, link, is_read, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [notif.id, notif.userId || null, notif.targetRole || 'admin', notif.title, notif.titleTa || null, notif.message, notif.messageTa || null, notif.link || null, false, notif.createdAt]
+      ).catch(e => console.warn('[DB Postgres Sync Error] notification insert:', e.message));
+    }
+
+    return notif;
+  }
+
+  public getNotifications(role?: string, userId?: string): AppNotification[] {
+    if (role === 'admin') {
+      return this.data.notifications.filter(n => !n.userId || n.targetRole === 'admin' || n.targetRole === 'all');
+    }
+    if (userId) {
+      return this.data.notifications.filter(n => n.userId === userId || n.targetRole === role || n.targetRole === 'all');
+    }
+    return [];
+  }
+
+  public markNotificationAsRead(id: string): boolean {
+    const notif = this.data.notifications.find(n => n.id === id);
+    if (!notif) return false;
+    notif.isRead = true;
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `UPDATE notifications SET is_read = TRUE WHERE id = $1`,
+        [id]
+      ).catch(e => console.warn('[DB Postgres Sync Error] notification mark read:', e.message));
+    }
+
+    return true;
+  }
+
+  // --- ADMIN USER MANAGEMENT METHODS ---
+  public getAdminUsers(): Array<User & { propertyCount?: number }> {
+    return this.data.users.map(u => {
+      const propertyCount = u.role === 'dealer'
+        ? this.data.properties.filter(p => p.dealerId === u.id).length
+        : undefined;
+
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        role: u.role,
+        avatar: u.avatar,
+        businessName: u.businessName,
+        district: u.district,
+        city: u.city,
+        address: u.address,
+        dealerType: u.dealerType,
+        dealerStatus: u.dealerStatus,
+        verifiedAt: u.verifiedAt,
+        rejectionReason: u.rejectionReason,
+        createdAt: u.createdAt,
+        propertyCount
+      };
+    });
   }
 
   // --- TERMS ACCEPTANCE METHODS ---

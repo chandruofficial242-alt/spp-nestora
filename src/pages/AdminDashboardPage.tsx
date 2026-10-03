@@ -7,7 +7,8 @@ import {
   Enquiry, 
   Payment, 
   AdminSettings,
-  EnquiryStatus
+  EnquiryStatus,
+  AppNotification
 } from '../types';
 import { InvoiceModal } from '../components/dealer/InvoiceModal';
 import { formatPrice } from '../utils/formatters';
@@ -26,7 +27,9 @@ import {
   Phone, 
   AlertTriangle,
   Trash2,
-  Save
+  Save,
+  Bell,
+  UserCheck
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
@@ -36,6 +39,7 @@ export const AdminDashboardPage: React.FC = () => {
     approveProperty, 
     rejectProperty, 
     deleteProperty,
+    allUsers,
     dealers, 
     updateDealerStatus, 
     enquiries, 
@@ -43,14 +47,20 @@ export const AdminDashboardPage: React.FC = () => {
     siteVisits, 
     payments, 
     settings, 
-    updateSettings 
+    updateSettings,
+    notifications,
+    markNotificationAsRead
   } = useApp();
 
   const [activeSection, setActiveSection] = useState<
-    'overview' | 'properties' | 'pending' | 'dealers' | 'enquiries' | 'visits' | 'payments' | 'settings'
+    'overview' | 'properties' | 'pending' | 'customers' | 'dealers' | 'enquiries' | 'visits' | 'payments' | 'settings'
   >('overview');
 
   const [selectedInvoice, setSelectedInvoice] = useState<Payment | null>(null);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+
+  // CRM notes editing state
+  const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
 
   // Rejection Modal state
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
@@ -60,6 +70,9 @@ export const AdminDashboardPage: React.FC = () => {
   // Settings form state
   const [settingsForm, setSettingsForm] = useState<AdminSettings>(settings);
 
+  // Filter customers from all users
+  const customers = (allUsers || []).filter((u: User) => u.role === 'customer');
+
   // KPI Calculations
   const totalProperties = properties.filter((p: Property) => p.status !== 'archived').length;
   const pendingProperties = properties.filter((p: Property) => p.status === 'pending_approval');
@@ -67,6 +80,7 @@ export const AdminDashboardPage: React.FC = () => {
   const totalEnquiries = enquiries.length;
   const pendingDealers = dealers.filter((d: User) => d.dealerStatus === 'pending');
   const totalRevenue = payments.reduce((acc: number, p: Payment) => p.status === 'success' ? acc + p.amount : acc, 0);
+  const unreadNotificationsCount = (notifications || []).filter((n: AppNotification) => !n.isRead).length;
 
   const handleSettingsSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,6 +101,13 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  const handleSaveNotes = (enquiryId: string, currentStatus: EnquiryStatus) => {
+    const notes = editingNotes[enquiryId];
+    if (notes !== undefined) {
+      updateEnquiryStatus(enquiryId, currentStatus, notes);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
       
@@ -104,15 +125,29 @@ export const AdminDashboardPage: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Tamil Nadu Real Estate Operations • Centralized Enquiry Desk
+              Tamil Nadu Real Estate Operations • Centralized Enquiry Desk • Official: {settings.officialPhoneDisplay}
             </p>
           </div>
         </div>
 
         <div className="flex items-center space-x-3">
+          {/* Notifications Trigger */}
+          <button
+            onClick={() => setShowNotificationsModal(true)}
+            className="relative p-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white transition cursor-pointer"
+            title="Admin Notifications"
+          >
+            <Bell className="w-5 h-5" />
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center animate-pulse border-2 border-slate-900">
+                {unreadNotificationsCount}
+              </span>
+            )}
+          </button>
+
           <button
             onClick={() => setActiveSection('settings')}
-            className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
+            className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
           >
             <Settings className="w-4 h-4" />
             <span>Contact Settings</span>
@@ -126,6 +161,7 @@ export const AdminDashboardPage: React.FC = () => {
           { id: 'overview', label: 'Overview', icon: <Layers className="w-4 h-4" /> },
           { id: 'pending', label: `Pending Approvals (${pendingProperties.length})`, icon: <Clock className="w-4 h-4" />, badge: pendingProperties.length > 0 },
           { id: 'properties', label: `All Properties (${totalProperties})`, icon: <Building2 className="w-4 h-4" /> },
+          { id: 'customers', label: `Customers (${customers.length})`, icon: <UserCheck className="w-4 h-4" /> },
           { id: 'dealers', label: `Dealers (${dealers.length})`, icon: <Users className="w-4 h-4" />, badge: pendingDealers.length > 0 },
           { id: 'enquiries', label: `Enquiries CRM (${totalEnquiries})`, icon: <MessageSquare className="w-4 h-4" /> },
           { id: 'visits', label: `Site Visits (${siteVisits.length})`, icon: <Calendar className="w-4 h-4" /> },
@@ -135,7 +171,7 @@ export const AdminDashboardPage: React.FC = () => {
           <button
             key={tab.id}
             onClick={() => setActiveSection(tab.id as any)}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition whitespace-nowrap ${
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition whitespace-nowrap cursor-pointer ${
               activeSection === tab.id
                 ? 'bg-brand-900 text-white shadow-sm'
                 : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200/80'
@@ -175,9 +211,9 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-subtle">
-              <span className="text-xs text-slate-400 font-bold uppercase block">Registered Dealers</span>
-              <span className="text-2xl font-black text-slate-900 mt-1 block">{dealers.length}</span>
-              <span className="text-[11px] text-amber-600 font-semibold block">{pendingDealers.length} awaiting verification</span>
+              <span className="text-xs text-slate-400 font-bold uppercase block">Registered Users</span>
+              <span className="text-2xl font-black text-slate-900 mt-1 block">{(allUsers || []).length}</span>
+              <span className="text-[11px] text-brand-600 font-semibold block">{customers.length} Customers • {dealers.length} Dealers</span>
             </div>
           </div>
 
@@ -197,7 +233,7 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
               <button
                 onClick={() => setActiveSection('pending')}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition whitespace-nowrap"
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
               >
                 Review Listings Now
               </button>
@@ -210,7 +246,7 @@ export const AdminDashboardPage: React.FC = () => {
               <h3 className="text-base font-bold text-slate-900">Recent Customer Enquiries (CRM)</h3>
               <button
                 onClick={() => setActiveSection('enquiries')}
-                className="text-xs font-bold text-brand-700 hover:underline"
+                className="text-xs font-bold text-brand-700 hover:underline cursor-pointer"
               >
                 View CRM Desk ({enquiries.length})
               </button>
@@ -220,12 +256,14 @@ export const AdminDashboardPage: React.FC = () => {
               {enquiries.slice(0, 3).map((enq: Enquiry) => (
                 <div key={enq.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                   <div>
-                    <span className="font-mono font-bold text-brand-800">{enq.propertyCode}</span>
-                    <h4 className="font-bold text-slate-900">{enq.customerName} ({enq.customerPhone})</h4>
-                    <p className="text-slate-500">{enq.message}</p>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono font-bold text-brand-800">{enq.propertyCode || enq.id}</span>
+                      <span className="font-bold text-slate-900">{enq.customerName} ({enq.customerPhone})</span>
+                    </div>
+                    <p className="text-slate-500 mt-0.5">{enq.message}</p>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded font-bold uppercase">
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded font-bold uppercase text-[10px]">
                       {enq.status.replace('_', ' ')}
                     </span>
                     <a
@@ -249,53 +287,47 @@ export const AdminDashboardPage: React.FC = () => {
         <div className="space-y-4">
           <h2 className="text-lg font-bold text-slate-900">Pending Property Listings Review</h2>
           {pendingProperties.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-slate-200">
-              <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto mb-2" />
-              <h3 className="font-bold text-slate-900">All submissions cleared</h3>
-              <p className="text-xs text-slate-500 mt-1">There are no pending properties requiring admin approval.</p>
+            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+              <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+              All property submissions have been reviewed and approved.
             </div>
           ) : (
             <div className="space-y-4">
               {pendingProperties.map((prop: Property) => (
-                <div key={prop.id} className="bg-white rounded-3xl border-2 border-amber-300 p-6 shadow-subtle space-y-4">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-start space-x-4">
-                      <div className="w-24 h-20 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0 border">
-                        <img src={prop.images[0]?.url} alt="" className="w-full h-full object-cover" />
-                      </div>
+                <div key={prop.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-subtle space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center space-x-4">
+                      <img
+                        src={prop.images[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=300&q=80'}
+                        alt=""
+                        className="w-20 h-16 rounded-xl object-cover bg-slate-100"
+                      />
                       <div>
                         <div className="flex items-center space-x-2">
-                          <span className="font-mono text-xs font-bold bg-slate-100 px-2 py-0.5 rounded">
+                          <span className="font-mono font-bold text-xs bg-brand-50 text-brand-900 px-2 py-0.5 rounded">
                             {prop.propertyCode}
                           </span>
-                          <span className="text-xs font-bold text-brand-800 capitalize">
-                            {prop.type.replace('_', ' ')}
-                          </span>
+                          <span className="text-xs font-semibold text-slate-500 uppercase">{prop.type}</span>
                         </div>
-                        <h4 className="text-base font-bold text-slate-900 mt-1">{prop.title}</h4>
-                        <p className="text-xs text-slate-500">{prop.address || prop.area}, {prop.district}</p>
-                        <p className="text-xs font-extrabold text-brand-900 mt-1">
-                          {formatPrice(prop.price, prop.type, language)} • {prop.areaSqft} Sq.Ft
-                        </p>
+                        <h3 className="font-bold text-slate-900 text-base mt-0.5">{prop.title}</h3>
+                        <p className="text-xs text-slate-500">{prop.locality}, {prop.district} • {formatPrice(prop.price, prop.type, language)}</p>
                       </div>
                     </div>
 
-                    {/* Admin Action Buttons */}
-                    <div className="flex items-center space-x-2.5">
+                    <div className="flex items-center space-x-2">
                       <button
                         onClick={() => approveProperty(prop.id)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm"
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
                       >
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>Approve & Publish Live</span>
+                        <span>Approve Listing</span>
                       </button>
-
                       <button
                         onClick={() => handleOpenReject(prop.id)}
-                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm"
+                        className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
                       >
                         <XCircle className="w-4 h-4" />
-                        <span>Reject with Reason</span>
+                        <span>Reject</span>
                       </button>
                     </div>
                   </div>
@@ -349,7 +381,7 @@ export const AdminDashboardPage: React.FC = () => {
                     </Link>
                     <button
                       onClick={() => deleteProperty(prop.id)}
-                      className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg"
+                      className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
                       title="Archive"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -362,106 +394,217 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* SECTION 4: DEALERS MANAGEMENT */}
+      {/* SECTION 4: CUSTOMER REGISTRATIONS */}
+      {activeSection === 'customers' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-slate-900">Registered Customers ({customers.length})</h2>
+          </div>
+          
+          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-subtle">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
+                  <tr>
+                    <th className="px-5 py-3.5">User ID</th>
+                    <th className="px-5 py-3.5">Full Name</th>
+                    <th className="px-5 py-3.5">Email</th>
+                    <th className="px-5 py-3.5">Mobile</th>
+                    <th className="px-5 py-3.5">Role</th>
+                    <th className="px-5 py-3.5">Registration Date</th>
+                    <th className="px-5 py-3.5">Account Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {customers.map((cust: User) => (
+                    <tr key={cust.id} className="hover:bg-slate-50/60 transition">
+                      <td className="px-5 py-3.5 font-mono font-bold text-slate-800">{cust.id}</td>
+                      <td className="px-5 py-3.5 font-bold text-slate-900 flex items-center space-x-2">
+                        <img
+                          src={cust.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${cust.name}`}
+                          alt=""
+                          className="w-7 h-7 rounded-full bg-slate-200"
+                        />
+                        <span>{cust.name}</span>
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-600">{cust.email}</td>
+                      <td className="px-5 py-3.5 font-mono text-slate-700">{cust.phone || '—'}</td>
+                      <td className="px-5 py-3.5">
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded font-bold uppercase text-[10px]">
+                          {cust.role}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-500">
+                        {cust.createdAt ? new Date(cust.createdAt).toLocaleString('en-IN') : '—'}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-[10px] uppercase">
+                          Active
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {customers.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
+                        No customer registrations recorded yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 5: DEALERS MANAGEMENT */}
       {activeSection === 'dealers' && (
         <div className="space-y-4">
           <h2 className="text-lg font-bold text-slate-900">Registered Property Dealers ({dealers.length})</h2>
           
           <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-subtle divide-y divide-slate-100">
-            {dealers.map((dealer: User) => (
-              <div key={dealer.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center space-x-3.5">
-                  <img
-                    src={dealer.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${dealer.name}`}
-                    alt=""
-                    className="w-12 h-12 rounded-xl object-cover bg-slate-200"
-                  />
-                  <div>
-                    <h4 className="font-bold text-sm text-slate-900">{dealer.businessName || dealer.name}</h4>
-                    <p className="text-xs text-slate-500">Contact Person: {dealer.name} • {dealer.email}</p>
-                    <p className="text-xs text-slate-500 font-mono">Internal Phone: {dealer.phone} (Hidden from public)</p>
+            {dealers.map((dealer: User) => {
+              const dealerPropsCount = properties.filter((p: Property) => p.dealerId === dealer.id).length;
+              return (
+                <div key={dealer.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center space-x-3.5">
+                    <img
+                      src={dealer.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${dealer.name}`}
+                      alt=""
+                      className="w-12 h-12 rounded-xl object-cover bg-slate-200"
+                    />
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono text-xs font-bold text-brand-900 bg-brand-50 px-2 py-0.5 rounded">{dealer.id}</span>
+                        <h4 className="font-bold text-sm text-slate-900">{dealer.businessName || dealer.name}</h4>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">Contact Person: {dealer.name} • {dealer.email}</p>
+                      <p className="text-xs text-slate-500 font-mono">Mobile: {dealer.phone} • District: {dealer.district || 'Tamil Nadu'} • Properties: {dealerPropsCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
+                      dealer.dealerStatus === 'verified'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {dealer.dealerStatus || 'pending'}
+                    </span>
+
+                    {dealer.dealerStatus !== 'verified' && (
+                      <button
+                        onClick={() => updateDealerStatus(dealer.id, 'verified')}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"
+                      >
+                        Approve Dealer
+                      </button>
+                    )}
+
+                    {dealer.dealerStatus === 'verified' && (
+                      <button
+                        onClick={() => updateDealerStatus(dealer.id, 'suspended', 'Suspended by admin')}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold cursor-pointer"
+                      >
+                        Suspend
+                      </button>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex items-center space-x-2">
-                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
-                    dealer.dealerStatus === 'verified'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}>
-                    {dealer.dealerStatus}
-                  </span>
-
-                  {dealer.dealerStatus !== 'verified' && (
-                    <button
-                      onClick={() => updateDealerStatus(dealer.id, 'verified')}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold"
-                    >
-                      Approve Dealer
-                    </button>
-                  )}
-
-                  {dealer.dealerStatus === 'verified' && (
-                    <button
-                      onClick={() => updateDealerStatus(dealer.id, 'suspended', 'Suspended by admin')}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
-                    >
-                      Suspend
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* SECTION 5: ENQUIRIES CRM */}
+      {/* SECTION 6: ENQUIRIES CRM */}
       {activeSection === 'enquiries' && (
         <div className="space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Enquiries CRM & Lead Coordination Desk</h2>
-          <div className="space-y-3">
+          <h2 className="text-lg font-bold text-slate-900">Enquiries CRM & Lead Coordination Desk ({enquiries.length})</h2>
+          <div className="space-y-4">
             {enquiries.map((enq: Enquiry) => (
               <div key={enq.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-subtle space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <div className="flex items-center space-x-2">
                       <span className="font-mono font-bold text-xs bg-brand-50 text-brand-900 px-2 py-0.5 rounded">
-                        {enq.propertyCode}
+                        Enquiry ID: {enq.id}
                       </span>
-                      <span className="text-xs font-bold text-slate-700">{enq.propertyTitle}</span>
+                      {enq.propertyCode && (
+                        <span className="font-mono font-bold text-xs bg-slate-100 text-slate-800 px-2 py-0.5 rounded">
+                          Prop: {enq.propertyCode}
+                        </span>
+                      )}
+                      <span className="text-xs font-bold text-slate-700">{enq.propertyTitle || 'General Enquiry'}</span>
                     </div>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Customer: <strong>{enq.customerName}</strong> • Phone: <strong className="text-slate-900">{enq.customerPhone}</strong>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Customer: <strong className="text-slate-900">{enq.customerName}</strong> • Phone: <strong className="text-brand-900">{enq.customerPhone}</strong> • Email: {enq.customerEmail || '—'}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Submitted: {enq.createdAt ? new Date(enq.createdAt).toLocaleString('en-IN') : 'Recent'} • Source: {enq.channel || 'website'}
                     </p>
                   </div>
 
                   {/* Status Dropdown */}
-                  <select
-                    value={enq.status}
-                    onChange={(e) => updateEnquiryStatus(enq.id, e.target.value as EnquiryStatus)}
-                    className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-slate-50 outline-hidden"
-                  >
-                    <option value="new">New</option>
-                    <option value="contacted">Contacted</option>
-                    <option value="follow_up">Follow Up</option>
-                    <option value="site_visit_scheduled">Site Visit Scheduled</option>
-                    <option value="completed">Completed / Deal Closed</option>
-                    <option value="closed">Closed</option>
-                  </select>
+                  <div className="flex items-center space-x-2">
+                    <select
+                      value={enq.status}
+                      onChange={(e) => updateEnquiryStatus(enq.id, e.target.value as EnquiryStatus)}
+                      className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-slate-50 outline-hidden cursor-pointer"
+                    >
+                      <option value="new">New</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="follow_up">Follow Up</option>
+                      <option value="site_visit_scheduled">Site Visit Scheduled</option>
+                      <option value="completed">Completed / Deal Closed</option>
+                      <option value="closed">Closed</option>
+                    </select>
+
+                    <a
+                      href={`tel:${enq.customerPhone}`}
+                      className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg"
+                      title="Call Customer"
+                    >
+                      <Phone className="w-4 h-4" />
+                    </a>
+                  </div>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
-                  <p><strong>Customer Message:</strong> {enq.message}</p>
+                  <p><strong>Customer Requirement / Message:</strong> {enq.message}</p>
                   {enq.preferredTime && <p><strong>Preferred Slot:</strong> {enq.preferredTime}</p>}
+                </div>
+
+                {/* Internal Admin Notes */}
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    placeholder="Add internal CRM notes (e.g. Called customer, interested in 3BHK visit)..."
+                    value={editingNotes[enq.id] !== undefined ? editingNotes[enq.id] : (enq.adminNotes || '')}
+                    onChange={(e) => setEditingNotes({ ...editingNotes, [enq.id]: e.target.value })}
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg outline-hidden bg-white"
+                  />
+                  <button
+                    onClick={() => handleSaveNotes(enq.id, enq.status)}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Save Note</span>
+                  </button>
                 </div>
               </div>
             ))}
+            {enquiries.length === 0 && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+                No customer enquiries recorded yet.
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* SECTION 6: PLATFORM & CONTACT SETTINGS */}
+      {/* SECTION 7: PLATFORM & CONTACT SETTINGS */}
       {activeSection === 'settings' && (
         <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 max-w-2xl shadow-subtle">
           <div className="flex items-center space-x-3 mb-6 pb-4 border-b border-slate-100">
@@ -478,20 +621,7 @@ export const AdminDashboardPage: React.FC = () => {
             
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Official Business Phone (Raw for tel: link) *
-              </label>
-              <input
-                type="text"
-                required
-                value={settingsForm.officialPhone}
-                onChange={(e) => setSettingsForm({ ...settingsForm, officialPhone: e.target.value })}
-                className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl outline-hidden font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Official Phone Display Text *
+                Official Phone Number (Display Format) *
               </label>
               <input
                 type="text"
@@ -504,7 +634,7 @@ export const AdminDashboardPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Official WhatsApp Number (With Country Code, e.g. 919444012345) *
+                Official WhatsApp Number (With Country Code, e.g. 919715673055) *
               </label>
               <input
                 type="text"
@@ -517,7 +647,7 @@ export const AdminDashboardPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Official Support Email *
+                Official Admin Notification Email *
               </label>
               <input
                 type="email"
@@ -544,7 +674,7 @@ export const AdminDashboardPage: React.FC = () => {
             <div className="pt-2">
               <button
                 type="submit"
-                className="py-3 px-6 bg-brand-800 hover:bg-brand-900 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2 shadow-sm"
+                className="py-3 px-6 bg-brand-800 hover:bg-brand-900 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2 shadow-sm cursor-pointer"
               >
                 <Save className="w-4 h-4" />
                 <span>Save Platform Settings</span>
@@ -555,7 +685,7 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* SECTION 7: REVENUE & PAYMENTS */}
+      {/* SECTION 8: REVENUE & PAYMENTS */}
       {activeSection === 'payments' && (
         <div className="space-y-4">
           <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-subtle">
@@ -572,13 +702,65 @@ export const AdminDashboardPage: React.FC = () => {
                     <span className="font-black text-brand-900 text-sm">₹{p.amount}.00</span>
                     <button
                       onClick={() => setSelectedInvoice(p)}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-bold"
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-bold cursor-pointer"
                     >
                       Receipt
                     </button>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications Modal */}
+      {showNotificationsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Bell className="w-5 h-5 text-brand-900" />
+                <h3 className="font-bold text-base text-slate-900">Admin Live Notifications</h3>
+              </div>
+              <button
+                onClick={() => setShowNotificationsModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-100 space-y-2 pr-1">
+              {(notifications || []).map((notif: AppNotification) => (
+                <div
+                  key={notif.id}
+                  onClick={() => markNotificationAsRead(notif.id)}
+                  className={`p-3 rounded-xl transition cursor-pointer ${
+                    notif.isRead ? 'bg-slate-50 text-slate-600' : 'bg-emerald-50/70 border border-emerald-200/60 text-slate-900'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-xs">{notif.title}</h4>
+                    <span className="text-[10px] text-slate-400">
+                      {notif.createdAt ? new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">{notif.message}</p>
+                </div>
+              ))}
+              {(notifications || []).length === 0 && (
+                <p className="text-center text-xs text-slate-400 py-8">No notifications received yet.</p>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setShowNotificationsModal(false)}
+                className="px-4 py-2 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -601,13 +783,13 @@ export const AdminDashboardPage: React.FC = () => {
             <div className="flex justify-end space-x-2 pt-2">
               <button
                 onClick={() => setRejectModalOpen(false)}
-                className="px-4 py-2 bg-slate-100 rounded-xl text-xs font-bold text-slate-700"
+                className="px-4 py-2 bg-slate-100 rounded-xl text-xs font-bold text-slate-700 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmReject}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
                 Confirm Rejection
               </button>

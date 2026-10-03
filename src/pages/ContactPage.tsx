@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { apiService } from '../services/api';
 import {
   Phone,
   MessageSquare,
@@ -19,31 +20,57 @@ export const ContactPage: React.FC = () => {
   const [subject, setSubject] = useState('General Property Inquiry');
   const [message, setMessage] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !phone || !message) return;
 
-    // Send to Admin Enquiry CRM
-    addEnquiry({
-      propertyId: 'general-desk',
-      propertyCode: 'SPP-GEN-DESK',
-      propertyTitle: subject,
-      propertyType: 'house_sale',
-      propertyLocation: 'Tamil Nadu Desk',
-      propertyPrice: 0,
-      dealerId: 'admin-desk',
-      customerName: name,
-      customerPhone: phone,
-      customerEmail: email,
-      channel: 'form',
-      message: `[Contact Form - ${subject}]: ${message}`,
-      status: 'new'
-    });
+    setIsSubmitting(true);
+    try {
+      // 1. Submit to server API (PostgreSQL + Email Notification)
+      await apiService.submitEnquiry({
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: email,
+        category: subject,
+        propertyTitle: subject,
+        propertyLocation: 'Tamil Nadu Desk',
+        message: message,
+        channel: 'website'
+      }).catch(err => {
+        console.warn('Backend enquiry dispatch warning:', err);
+      });
 
-    setSubmitted(true);
-    showToast(language === 'ta' ? 'செய்தி அனுப்பப்பட்டது' : 'Message sent to SPP Nestora Admin desk!', 'success');
+      // 2. Update local CRM context
+      addEnquiry({
+        propertyId: 'general-desk',
+        propertyCode: 'SPP-GEN-DESK',
+        propertyTitle: subject,
+        propertyType: 'house_sale',
+        propertyLocation: 'Tamil Nadu Desk',
+        propertyPrice: 0,
+        dealerId: 'admin-desk',
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: email,
+        channel: 'form',
+        message: `[${subject}]: ${message}`,
+        status: 'new'
+      });
+
+      setSubmitted(true);
+      showToast(
+        language === 'ta' 
+          ? 'உங்கள் விசாரணை வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது.' 
+          : 'Your enquiry has been submitted successfully. Our SPP Nestora team will contact you shortly.', 
+        'success'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 space-y-12">
@@ -142,9 +169,9 @@ export const ContactPage: React.FC = () => {
               <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
                 <CheckCircle2 className="w-10 h-10" />
               </div>
-              <h3 className="text-xl font-bold text-slate-900">Message Received!</h3>
+              <h3 className="text-xl font-bold text-slate-900">Your enquiry has been submitted successfully.</h3>
               <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-                Thank you for contacting SPP Nestora. Our regional property executive will review your enquiry and get back to you shortly.
+                Our SPP Nestora team will contact you shortly.
               </p>
               <button
                 onClick={() => {

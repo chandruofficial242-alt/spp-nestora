@@ -78,7 +78,8 @@ interface AppContextType {
   // Payments
   payments: Payment[];
   
-  // Dealer Management
+  // User & Dealer Management
+  allUsers: User[];
   dealers: User[];
   updateDealerStatus: (dealerId: string, status: DealerStatus, reason?: string) => void;
   
@@ -679,6 +680,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       scheduleSiteVisit,
       updateSiteVisitStatus,
       payments,
+      allUsers,
       dealers,
       updateDealerStatus,
       settings,

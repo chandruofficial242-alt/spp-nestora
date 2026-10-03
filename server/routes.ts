@@ -3,6 +3,7 @@ import { db } from './db.ts';
 import { authenticate, requireRole, generateAuthToken, type AuthenticatedRequest } from './auth.ts';
 import { sanitizePropertyForPublic, sanitizePropertiesListForPublic, sanitizeUser } from './sanitizer.ts';
 import { paymentGateway, verifyRazorpayWebhookSignature, handleWebhookPaymentReconciliation } from './paymentService.ts';
+import { emailService } from './emailService.ts';
 import { uploadMiddleware, processUploadedFile } from './uploadService.ts';
 import { createRateLimiter } from './rateLimiter.ts';
 import type { User, Property, PropertyStatus, EnquiryStatus, SiteVisitStatus, DealerStatus } from '../src/types/index.ts';
@@ -59,6 +60,23 @@ router.post('/auth/register', registerLimiter, (req, res) => {
       termsVersion: 'v1.0',
       language: req.body.language || 'en'
     });
+
+    // Create In-App Notification for Admin
+    db.createNotification({
+      targetRole: 'admin',
+      title: `New ${newUser.role === 'dealer' ? 'Dealer' : 'Customer'} Registered: ${newUser.name}`,
+      titleTa: `புதிய ${newUser.role === 'dealer' ? 'டீலர்' : 'வாடிக்கையாளர்'} பதிவு: ${newUser.name}`,
+      message: `${newUser.name} (${newUser.email}, ${newUser.phone}) registered as ${newUser.role}.`,
+      messageTa: `${newUser.name} (${newUser.email}) புதிய ${newUser.role} ஆக பதிவு செய்துள்ளார்.`,
+      link: newUser.role === 'dealer' ? '/admin' : '/admin'
+    });
+
+    // Send Email Notification to chandruking901@gmail.com
+    if (newUser.role === 'dealer') {
+      emailService.sendDealerRegistrationNotification(newUser as User, 0).catch(e => console.warn('[Email Error]:', e.message));
+    } else {
+      emailService.sendCustomerRegistrationNotification(newUser as User).catch(e => console.warn('[Email Error]:', e.message));
+    }
 
     const token = generateAuthToken(newUser as User);
     return res.status(201).json({
@@ -235,6 +253,20 @@ router.post('/properties', authenticate, requireRole(['dealer', 'admin']), (req:
     }
 
     const created = db.createProperty(req.body, dealer);
+
+    // In-app Notification for Admin
+    db.createNotification({
+      targetRole: 'admin',
+      title: `New Property Submitted: [${created.propertyCode}] ${created.title}`,
+      titleTa: `புதிய சொத்து சமர்ப்பிக்கப்பட்டது: [${created.propertyCode}] ${created.title}`,
+      message: `${created.dealerName || dealer.name} submitted a new ${created.type} listing in ${created.district}.`,
+      messageTa: `${created.dealerName || dealer.name} புதிய சொத்தை சமர்ப்பித்துள்ளார்.`,
+      link: `/properties/${created.id}`
+    });
+
+    // Email Notification to Admin
+    emailService.sendPropertyPendingApprovalNotification(created).catch(e => console.warn('[Email Error]:', e.message));
+
     return res.status(201).json({ success: true, property: created });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to submit property' });
@@ -319,6 +351,19 @@ router.post('/payments/verify', paymentLimiter, authenticate, requireRole(['deal
       method: method || 'upi'
     });
 
+    // In-app Notification for Admin
+    db.createNotification({
+      targetRole: 'admin',
+      title: `₹10 Payment Verified – Receipt #${result.paymentRecord.receiptNumber}`,
+      titleTa: `₹10 கட்டணம் சரிபார்க்கப்பட்டது – ரசீது #${result.paymentRecord.receiptNumber}`,
+      message: `${dealer.name} paid ₹10 via ${result.paymentRecord.method.toUpperCase()} for "${propertyTitle}".`,
+      messageTa: `${dealer.name} ₹10 கட்டணத்தை வெற்றிகரமாக செலுத்தியுள்ளார்.`,
+      link: '/admin'
+    });
+
+    // Email Notification to Admin
+    emailService.sendPaymentVerifiedNotification(result.paymentRecord).catch(e => console.warn('[Email Error]:', e.message));
+
     return res.json(result);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Payment verification failed' });
@@ -339,6 +384,11 @@ router.post('/payments/webhook', (req, res) => {
   }
 
   const result = handleWebhookPaymentReconciliation(req.body);
+
+  if (result.success && result.payment) {
+    emailService.sendPaymentVerifiedNotification(result.payment).catch(e => console.warn('[Email Error]:', e.message));
+  }
+
   return res.json({ status: 'ok', ...result });
 });
 
@@ -385,6 +435,19 @@ router.post('/enquiries', (req, res) => {
       status: 'new'
     });
 
+    // In-app Notification for Admin
+    db.createNotification({
+      targetRole: 'admin',
+      title: `New Customer Enquiry from ${customerName}`,
+      titleTa: `புதிய வாடிக்கையாளர் விசாரணை - ${customerName}`,
+      message: `${customerName} (${customerPhone}) submitted enquiry: "${message.slice(0, 80)}..."`,
+      messageTa: `${customerName} (${customerPhone}) புதிய விசாரணையை சமர்ப்பித்துள்ளார்.`,
+      link: '/admin'
+    });
+
+    // Email Notification to Admin (chandruking901@gmail.com)
+    emailService.sendCustomerEnquiryNotification(enquiry).catch(e => console.warn('[Email Error]:', e.message));
+
     return res.status(201).json({ success: true, enquiry });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to submit enquiry' });
@@ -419,11 +482,15 @@ router.post('/site-visits', (req, res) => {
   try {
     const { propertyId, propertyCode, propertyTitle, propertyAddress, dealerId, customerId, customerName, customerPhone, date, time, notes } = req.body;
 
+    if (!customerName || !customerPhone || !date || !time) {
+      return res.status(400).json({ error: 'Customer name, phone, date, and time are required' });
+    }
+
     const visit = db.createSiteVisit({
-      propertyId,
-      propertyCode,
-      propertyTitle,
-      propertyAddress,
+      propertyId: propertyId || 'general',
+      propertyCode: propertyCode || 'SPP-GEN',
+      propertyTitle: propertyTitle || 'Property Visit',
+      propertyAddress: propertyAddress || 'Tamil Nadu',
       dealerId: dealerId || 'admin-desk',
       customerId: customerId || 'guest',
       customerName,
@@ -433,6 +500,19 @@ router.post('/site-visits', (req, res) => {
       status: 'requested',
       notes
     });
+
+    // In-app Notification for Admin
+    db.createNotification({
+      targetRole: 'admin',
+      title: `Site Visit Scheduled by ${customerName}`,
+      titleTa: `தள பார்வை திட்டமிடப்பட்டது - ${customerName}`,
+      message: `${customerName} requested visit for ${visit.propertyCode} on ${date} at ${time}.`,
+      messageTa: `${customerName} (${customerPhone}) தள பார்வையை கோரியுள்ளார்.`,
+      link: '/admin'
+    });
+
+    // Email Notification to Admin
+    emailService.sendSiteVisitNotification(visit).catch(e => console.warn('[Email Error]:', e.message));
 
     return res.status(201).json({ success: true, siteVisit: visit });
   } catch (err: any) {
@@ -460,8 +540,13 @@ router.patch('/site-visits/:id', authenticate, requireRole(['admin']), (req: Aut
 });
 
 // ==========================================
-// 7. ADMIN DEALER & REVENUE OPERATIONS
+// 7. ADMIN USER & DEALER OPERATIONS
 // ==========================================
+
+router.get('/admin/users', authenticate, requireRole(['admin']), (req, res) => {
+  const users = db.getAdminUsers();
+  return res.json(users);
+});
 
 router.get('/admin/dealers', authenticate, requireRole(['admin']), (req, res) => {
   const dealers = db.getSnapshot().users.filter(u => u.role === 'dealer').map(sanitizeUser);
@@ -491,7 +576,30 @@ router.get('/admin/revenue', authenticate, requireRole(['admin']), (req, res) =>
 });
 
 // ==========================================
-// 8. SYSTEM SETTINGS
+// 8. NOTIFICATIONS API
+// ==========================================
+
+router.get('/notifications', authenticate, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  const notifs = db.getNotifications(user.role, user.id);
+  return res.json(notifs);
+});
+
+router.get('/notifications/unread-count', authenticate, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  const notifs = db.getNotifications(user.role, user.id);
+  const unreadCount = notifs.filter(n => !n.isRead).length;
+  return res.json({ unreadCount });
+});
+
+router.patch('/notifications/:id/read', authenticate, (req: AuthenticatedRequest, res) => {
+  const id = req.params.id as string;
+  const success = db.markNotificationAsRead(id);
+  return res.json({ success });
+});
+
+// ==========================================
+// 9. SYSTEM SETTINGS
 // ==========================================
 
 router.get('/settings', (_req, res) => {

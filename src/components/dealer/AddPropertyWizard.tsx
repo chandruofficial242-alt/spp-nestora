@@ -311,7 +311,7 @@ export const AddPropertyWizard: React.FC = () => {
             prefill: {
               name: currentUser?.businessName || currentUser?.name || 'Authorized Dealer',
               email: currentUser?.email || 'dealer@sppnestora.com',
-              contact: currentUser?.phone || '9444012345'
+              contact: currentUser?.phone || '9715673055'
             },
             theme: { color: '#0f3a22' }
           };
