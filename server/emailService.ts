@@ -75,6 +75,9 @@ class EmailService {
             port: 465,
             secure: true, // SSL
             family: 4, // Explicit IPv4 to prevent ENETUNREACH in Render/Linux containers
+            pool: true,
+            maxConnections: 3,
+            maxMessages: 100,
             auth: {
               user: config.user,
               pass: config.pass
@@ -82,9 +85,9 @@ class EmailService {
             tls: {
               rejectUnauthorized: false
             },
-            connectionTimeout: 15000,
-            greetingTimeout: 15000,
-            socketTimeout: 30000
+            connectionTimeout: 30000,
+            greetingTimeout: 30000,
+            socketTimeout: 45000
           } as any);
         } else {
           this.transporter = nodemailer.createTransport({
@@ -92,6 +95,9 @@ class EmailService {
             port: config.port,
             secure: config.secure,
             family: 4, // Explicit IPv4
+            pool: true,
+            maxConnections: 3,
+            maxMessages: 100,
             auth: {
               user: config.user,
               pass: config.pass
@@ -99,13 +105,13 @@ class EmailService {
             tls: {
               rejectUnauthorized: false
             },
-            connectionTimeout: 15000,
-            greetingTimeout: 15000,
-            socketTimeout: 30000
+            connectionTimeout: 30000,
+            greetingTimeout: 30000,
+            socketTimeout: 45000
           } as any);
         }
         this.isConfigured = true;
-        console.log(`[Email Service] SMTP Transport configured for ${config.isGmail ? 'Gmail Service (smtp.gmail.com:465 SSL, IPv4)' : config.host + ':' + config.port} (Sender: ${config.user})`);
+        console.log(`[Email Service] SMTP Transport configured for ${config.isGmail ? 'Gmail Service (smtp.gmail.com:465 SSL, IPv4, Pooled)' : config.host + ':' + config.port} (Sender: ${config.user})`);
         return true;
       } catch (err: any) {
         console.warn('[Email Service] Failed to initialize SMTP transport:', err.message || err);
