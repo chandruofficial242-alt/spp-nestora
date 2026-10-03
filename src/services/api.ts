@@ -54,6 +54,24 @@ export const apiService = {
     return data;
   },
 
+  async logout(): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+      });
+    } catch {}
+    localStorage.removeItem('spp_nestora_token');
+  },
+
+  async getMe(): Promise<{ user: User }> {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: getAuthHeader()
+    });
+    if (!res.ok) throw new Error('Session expired or invalid');
+    return res.json();
+  },
+
   async acceptTerms(email?: string, language?: string): Promise<void> {
     try {
       await fetch(`${API_BASE}/terms/accept`, {
@@ -63,6 +81,7 @@ export const apiService = {
       });
     } catch (e) {}
   },
+
 
   // --- SETTINGS ---
   async getSettings(): Promise<AdminSettings> {

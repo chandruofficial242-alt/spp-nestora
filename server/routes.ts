@@ -128,8 +128,8 @@ router.post('/terms/accept', (req, res) => {
 // 2. MEDIA UPLOAD (Cloudinary / Disk Storage)
 // ==========================================
 
-// Single Image Upload
-router.post('/upload/image', authenticate, uploadMiddleware.single('image'), async (req: AuthenticatedRequest, res) => {
+// Single Image Upload (Dealer & Admin only)
+router.post('/upload/image', authenticate, requireRole(['dealer', 'admin']), uploadMiddleware.single('image'), async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file uploaded' });
@@ -141,8 +141,8 @@ router.post('/upload/image', authenticate, uploadMiddleware.single('image'), asy
   }
 });
 
-// Multiple Images Upload (Up to 10 photos)
-router.post('/upload/multiple', authenticate, uploadMiddleware.array('images', 10), async (req: AuthenticatedRequest, res) => {
+// Multiple Images Upload (Up to 10 photos, Dealer & Admin only)
+router.post('/upload/multiple', authenticate, requireRole(['dealer', 'admin']), uploadMiddleware.array('images', 10), async (req: AuthenticatedRequest, res) => {
   try {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
@@ -159,8 +159,8 @@ router.post('/upload/multiple', authenticate, uploadMiddleware.array('images', 1
   }
 });
 
-// Video Upload (Up to 50MB)
-router.post('/upload/video', authenticate, uploadMiddleware.single('video'), async (req: AuthenticatedRequest, res) => {
+// Video Upload (Up to 50MB, Dealer & Admin only)
+router.post('/upload/video', authenticate, requireRole(['dealer', 'admin']), uploadMiddleware.single('video'), async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No video file uploaded' });
@@ -171,6 +171,7 @@ router.post('/upload/video', authenticate, uploadMiddleware.single('video'), asy
     return res.status(500).json({ error: err.message || 'Video upload failed' });
   }
 });
+
 
 // ==========================================
 // 3. SETTINGS (Centralized Contact Desk)

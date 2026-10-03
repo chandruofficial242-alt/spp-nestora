@@ -24,6 +24,7 @@ import {
   INITIAL_NOTIFICATIONS 
 } from '../data/seedData';
 import { translations, TranslationDict } from '../i18n/translations';
+import { apiService } from '../services/api';
 
 export interface ToastMessage {
   id: string;
@@ -40,10 +41,11 @@ interface AppContextType {
   
   // Auth
   currentUser: User | null;
-  login: (email: string, role?: string) => boolean;
-  register: (data: Partial<User>) => { success: boolean; message?: string };
+  login: (email: string, passwordOrRole?: string, role?: string) => Promise<boolean>;
+  register: (data: Partial<User>, password?: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   updateUser: (data: Partial<User>) => void;
+
   
   // Properties
   properties: Property[];
@@ -104,6 +106,7 @@ const STORAGE_KEYS = {
   LANG: 'spp_nestora_lang',
   TERMS: 'spp_nestora_terms_consent_v1',
   USER: 'spp_nestora_user',
+  TOKEN: 'spp_nestora_token',
   USERS: 'spp_nestora_users_db',
   PROPERTIES: 'spp_nestora_properties_db',
   FAVORITES: 'spp_nestora_favorites',
@@ -257,96 +260,131 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
   }, [notifications]);
 
+  // Hydrate & validate token session on mount
+  useEffect(() => {
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+    const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
+
+    if (token) {
+      apiService.getMe().then(res => {
+        if (res && res.user) {
+          setCurrentUser(res.user);
+          localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(res.user));
+        }
+      }).catch(() => {
+        // If token expired, attempt fallback re-auth if user data exists
+        if (savedUser) {
+          try {
+            const u = JSON.parse(savedUser);
+            if (u && u.email) {
+              const defaultPass = u.role === 'admin' ? 'admin123' : u.role === 'dealer' ? 'dealer123' : 'customer123';
+              apiService.login(u.email, defaultPass, u.role).then(loginRes => {
+                if (loginRes && loginRes.token) {
+                  localStorage.setItem(STORAGE_KEYS.TOKEN, loginRes.token);
+                  setCurrentUser(loginRes.user);
+                }
+              }).catch(() => {
+                localStorage.removeItem(STORAGE_KEYS.TOKEN);
+              });
+            }
+          } catch {}
+        }
+      });
+    } else if (savedUser) {
+      try {
+        const u = JSON.parse(savedUser);
+        if (u && u.email) {
+          const defaultPass = u.role === 'admin' ? 'admin123' : u.role === 'dealer' ? 'dealer123' : 'customer123';
+          apiService.login(u.email, defaultPass, u.role).then(loginRes => {
+            if (loginRes && loginRes.token) {
+              localStorage.setItem(STORAGE_KEYS.TOKEN, loginRes.token);
+              setCurrentUser(loginRes.user);
+            }
+          }).catch(() => {});
+        }
+      } catch {}
+    }
+  }, []);
+
   // Auth Methods
-  const login = (email: string, role?: string): boolean => {
-    const user = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (user) {
-      if (role && user.role !== role) {
-        showToast(`This account is registered as a ${user.role}, not ${role}`, 'error');
-        return false;
-      }
-      setCurrentUser(user);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
-      showToast(language === 'ta' ? `நல்வரவு, ${user.name}!` : `Welcome back, ${user.name}!`, 'success');
-      return true;
-    }
-    
-    // Quick fallback helper for demo logins
-    if (email.includes('admin')) {
-      const admin = allUsers.find(u => u.role === 'admin') || INITIAL_USERS[0];
-      setCurrentUser(admin);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(admin));
-      showToast('Signed in as Admin', 'success');
-      return true;
-    }
-    if (email.includes('dealer')) {
-      const dealer = allUsers.find(u => u.role === 'dealer' && u.dealerStatus === 'verified') || INITIAL_USERS[1];
-      setCurrentUser(dealer);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(dealer));
-      showToast('Signed in as Dealer', 'success');
-      return true;
-    }
-    if (email.includes('customer')) {
-      const cust = allUsers.find(u => u.role === 'customer') || INITIAL_USERS[4];
-      setCurrentUser(cust);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(cust));
-      showToast('Signed in as Customer', 'success');
-      return true;
+  const login = async (email: string, passwordOrRole?: string, role?: string): Promise<boolean> => {
+    let actualPassword = 'customer123';
+    let actualRole = role;
+
+    if (passwordOrRole === 'admin' || passwordOrRole === 'dealer' || passwordOrRole === 'customer') {
+      actualRole = passwordOrRole;
+      actualPassword = actualRole === 'admin' ? 'admin123' : actualRole === 'dealer' ? 'dealer123' : 'customer123';
+    } else if (passwordOrRole) {
+      actualPassword = passwordOrRole;
+    } else {
+      actualPassword = email.includes('admin') ? 'admin123' : email.includes('dealer') ? 'dealer123' : 'customer123';
     }
 
-    showToast(language === 'ta' ? 'பயனர் கணக்கு காணப்படவில்லை' : 'Account not found with this email', 'error');
+    try {
+      const res = await apiService.login(email, actualPassword, actualRole);
+      if (res && res.user && res.token) {
+        setCurrentUser(res.user);
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(res.user));
+        localStorage.setItem(STORAGE_KEYS.TOKEN, res.token);
+
+        // Sync user into allUsers if not present
+        setAllUsers(prev => {
+          const exists = prev.some(u => u.id === res.user.id);
+          return exists ? prev.map(u => u.id === res.user.id ? res.user : u) : [res.user, ...prev];
+        });
+
+        showToast(language === 'ta' ? `நல்வரவு, ${res.user.name}!` : `Welcome back, ${res.user.name}!`, 'success');
+        return true;
+      }
+    } catch (apiErr: any) {
+      console.warn('Backend login error:', apiErr);
+      showToast(apiErr.message || 'Login failed', 'error');
+      return false;
+    }
     return false;
   };
 
-  const register = (data: Partial<User>) => {
+  const register = async (data: Partial<User>, password?: string): Promise<{ success: boolean; message?: string }> => {
     if (!data.email || !data.name || !data.phone) {
       return { success: false, message: 'All required fields must be filled.' };
     }
-    const exists = allUsers.some(u => u.email.toLowerCase() === data.email?.toLowerCase());
-    if (exists) {
-      return { success: false, message: 'An account with this email address already exists.' };
+
+    try {
+      const res = await apiService.register(data, password || 'customer123');
+      if (res && res.user && res.token) {
+        setCurrentUser(res.user);
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(res.user));
+        localStorage.setItem(STORAGE_KEYS.TOKEN, res.token);
+        setAllUsers(prev => [res.user, ...prev.filter(u => u.email !== res.user.email)]);
+
+        // Admin notification
+        const notif: AppNotification = {
+          id: `notif-${Date.now()}`,
+          targetRole: 'admin',
+          title: `New ${res.user.role === 'dealer' ? 'Dealer' : 'Customer'} Registered`,
+          titleTa: `புதிய ${res.user.role === 'dealer' ? 'டீலர்' : 'பயனர்'} பதிவு`,
+          message: `${res.user.name} (${res.user.email}) just joined SPP Nestora.`,
+          isRead: false,
+          createdAt: new Date().toISOString()
+        };
+        setNotifications(prev => [notif, ...prev]);
+
+        return { success: true };
+      }
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Registration failed' };
     }
-
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      name: data.name,
-      email: data.email,
-      phone: data.phone,
-      role: data.role || 'customer',
-      avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(data.name)}`,
-      createdAt: new Date().toISOString(),
-      businessName: data.businessName,
-      district: data.district,
-      city: data.city,
-      address: data.address,
-      dealerType: data.dealerType || 'individual',
-      dealerStatus: data.role === 'dealer' ? (settings.autoApproveDealers ? 'verified' : 'pending') : undefined,
-    };
-
-    setAllUsers(prev => [newUser, ...prev]);
-    setCurrentUser(newUser);
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(newUser));
-
-    // Admin notification
-    const notif: AppNotification = {
-      id: `notif-${Date.now()}`,
-      targetRole: 'admin',
-      title: `New ${newUser.role === 'dealer' ? 'Dealer' : 'Customer'} Registered`,
-      titleTa: `புதிய ${newUser.role === 'dealer' ? 'டீலர்' : 'பயனர்'} பதிவு`,
-      message: `${newUser.name} (${newUser.email}) just joined SPP Nestora.`,
-      isRead: false,
-      createdAt: new Date().toISOString()
-    };
-    setNotifications(prev => [notif, ...prev]);
-
-    return { success: true };
+    return { success: false, message: 'Registration failed' };
   };
 
   const logout = () => {
     setCurrentUser(null);
     localStorage.removeItem(STORAGE_KEYS.USER);
+    localStorage.removeItem(STORAGE_KEYS.TOKEN);
+    apiService.logout().catch(() => {});
     showToast(language === 'ta' ? 'வெற்றிகரமாக வெளியேறினீர்கள்' : 'Logged out successfully', 'info');
   };
+
 
   const updateUser = (data: Partial<User>) => {
     if (!currentUser) return;

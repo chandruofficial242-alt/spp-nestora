@@ -27,7 +27,7 @@ export const RegisterPage: React.FC = () => {
   const [address, setAddress] = useState('');
   const [dealerType, setDealerType] = useState<'individual' | 'agency' | 'builder' | 'promoter'>('agency');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!name || !email || !phone || !password) {
@@ -40,7 +40,7 @@ export const RegisterPage: React.FC = () => {
       return;
     }
 
-    const res = register({
+    const res = await register({
       name,
       email,
       phone,
@@ -50,7 +50,7 @@ export const RegisterPage: React.FC = () => {
       city: role === 'dealer' ? city : undefined,
       address: role === 'dealer' ? address : undefined,
       dealerType: role === 'dealer' ? dealerType : undefined
-    });
+    }, password);
 
     if (res.success) {
       showToast(

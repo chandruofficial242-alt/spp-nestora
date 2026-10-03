@@ -16,14 +16,14 @@ export const LoginPage: React.FC = () => {
     roleParam === 'admin' ? 'admin' : roleParam === 'dealer' ? 'dealer' : 'customer'
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
       showToast('Please enter your email address', 'error');
       return;
     }
 
-    const success = login(email, selectedRole);
+    const success = await login(email, password || (selectedRole === 'admin' ? 'admin123' : selectedRole === 'dealer' ? 'dealer123' : 'customer123'), selectedRole);
     if (success) {
       if (selectedRole === 'admin') navigate('/admin');
       else if (selectedRole === 'dealer') navigate('/dealer/dashboard');
@@ -31,23 +31,23 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickDemoLogin = (role: 'admin' | 'dealer' | 'customer') => {
+  const handleQuickDemoLogin = async (role: 'admin' | 'dealer' | 'customer') => {
     setSelectedRole(role);
     if (role === 'admin') {
       setEmail('admin@sppnestora.com');
       setPassword('admin123');
-      login('admin@sppnestora.com', 'admin');
-      navigate('/admin');
+      const ok = await login('admin@sppnestora.com', 'admin123', 'admin');
+      if (ok) navigate('/admin');
     } else if (role === 'dealer') {
       setEmail('dealer@sppnestora.com');
       setPassword('dealer123');
-      login('dealer@sppnestora.com', 'dealer');
-      navigate('/dealer/dashboard');
+      const ok = await login('dealer@sppnestora.com', 'dealer123', 'dealer');
+      if (ok) navigate('/dealer/dashboard');
     } else {
       setEmail('customer@sppnestora.com');
       setPassword('customer123');
-      login('customer@sppnestora.com', 'customer');
-      navigate('/customer/dashboard');
+      const ok = await login('customer@sppnestora.com', 'customer123', 'customer');
+      if (ok) navigate('/customer/dashboard');
     }
   };
 
