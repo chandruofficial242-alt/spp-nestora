@@ -32,6 +32,15 @@ export const AddPropertyWizard: React.FC = () => {
   const [receipt, setReceipt] = useState<Payment | null>(null);
   const [createdProperty, setCreatedProperty] = useState<Property | null>(null);
 
+  // Guard: Ensure dealer is authenticated
+  React.useEffect(() => {
+    const token = localStorage.getItem('spp_nestora_token');
+    if (!token) {
+      showToast('Please log in with an Authorized Dealer account to create listings.', 'warning');
+      navigate('/login?role=dealer');
+    }
+  }, [navigate]);
+
   // Form State
   const [formData, setFormData] = useState<Partial<Property>>({
     type: 'house_sale',
@@ -227,6 +236,13 @@ export const AddPropertyWizard: React.FC = () => {
 
   // Submit & Pay Listing Fee (Real Razorpay / Sandbox Hybrid)
   const handlePaymentAndSubmit = async () => {
+    const token = localStorage.getItem('spp_nestora_token');
+    if (!token || !currentUser) {
+      showToast('Please log in with your Dealer account to continue.', 'error');
+      navigate('/login?role=dealer');
+      return;
+    }
+
     setLoading(true);
     try {
       const tempPropId = `prop-${Date.now()}`;

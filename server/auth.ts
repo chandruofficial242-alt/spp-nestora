@@ -64,17 +64,24 @@ export function verifyAuthToken(token: string): AuthTokenPayload | null {
 export function authenticate(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.warn(`[Auth Warning] Unauthorized access to ${req.method} ${req.originalUrl || req.path}: Missing Bearer token header`);
     return res.status(401).json({ error: 'Authentication token required' });
   }
 
   const token = authHeader.substring(7);
   const payload = verifyAuthToken(token);
   if (!payload) {
+    console.warn(`[Auth Warning] Unauthorized access to ${req.method} ${req.originalUrl || req.path}: Invalid or expired token`);
     return res.status(401).json({ error: 'Invalid or expired session token' });
   }
 
-  const user = db.findUserById(payload.userId);
+  let user = db.findUserById(payload.userId);
+  if (!user && payload.email) {
+    user = db.findUserByEmail(payload.email);
+  }
+
   if (!user) {
+    console.warn(`[Auth Warning] User ${payload.userId} (${payload.email}) not found in database`);
     return res.status(401).json({ error: 'User account no longer exists' });
   }
 
@@ -92,9 +99,11 @@ export function requireRole(allowedRoles: UserRole[]) {
     }
 
     if (!allowedRoles.includes(req.user.role)) {
+      console.warn(`[Auth Warning] Access forbidden: User ${req.user.id} with role '${req.user.role}' attempted to access endpoint restricted to [${allowedRoles.join(', ')}]`);
       return res.status(403).json({ error: `Access denied. Requires role: ${allowedRoles.join(', ')}` });
     }
 
     next();
   };
 }
+

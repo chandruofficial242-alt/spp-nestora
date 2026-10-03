@@ -195,6 +195,13 @@ export class SandboxPaymentGateway implements IPaymentGateway {
     const settings = db.getSettings();
     const serverVerifiedAmount = settings.listingFeeAmount || 10;
 
+    // Prevent duplicate payment verification for same property
+    const existingPayments = db.getSnapshot().payments;
+    const alreadyPaid = existingPayments.find(p => p.propertyId === req.propertyId && p.status === 'success');
+    if (alreadyPaid) {
+      throw new Error(`Property ${req.propertyId} already has a confirmed listing fee payment (${alreadyPaid.transactionRef || alreadyPaid.id}). Duplicate payments are blocked.`);
+    }
+
     const transactionRef = `SB-TXN-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     
     const paymentRecord = db.recordPayment({

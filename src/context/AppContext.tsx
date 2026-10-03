@@ -164,9 +164,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_USERS;
   });
 
-  // Current Logged In User
+  // Current Logged In User (strictly bound to valid token presence)
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
     const saved = localStorage.getItem(STORAGE_KEYS.USER);
+    if (!token) return null;
     return saved ? JSON.parse(saved) : null;
   });
 
@@ -263,46 +265,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Hydrate & validate token session on mount
   useEffect(() => {
     const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
-    const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
 
     if (token) {
       apiService.getMe().then(res => {
         if (res && res.user) {
           setCurrentUser(res.user);
           localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(res.user));
+        } else {
+          localStorage.removeItem(STORAGE_KEYS.TOKEN);
+          localStorage.removeItem(STORAGE_KEYS.USER);
+          setCurrentUser(null);
         }
-      }).catch(() => {
-        // If token expired, attempt fallback re-auth if user data exists
-        if (savedUser) {
-          try {
-            const u = JSON.parse(savedUser);
-            if (u && u.email) {
-              const defaultPass = u.role === 'admin' ? 'admin123' : u.role === 'dealer' ? 'dealer123' : 'customer123';
-              apiService.login(u.email, defaultPass, u.role).then(loginRes => {
-                if (loginRes && loginRes.token) {
-                  localStorage.setItem(STORAGE_KEYS.TOKEN, loginRes.token);
-                  setCurrentUser(loginRes.user);
-                }
-              }).catch(() => {
-                localStorage.removeItem(STORAGE_KEYS.TOKEN);
-              });
-            }
-          } catch {}
-        }
+      }).catch(err => {
+        console.warn('[Session] Token validation expired or invalid:', err?.message || err);
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        setCurrentUser(null);
       });
-    } else if (savedUser) {
-      try {
-        const u = JSON.parse(savedUser);
-        if (u && u.email) {
-          const defaultPass = u.role === 'admin' ? 'admin123' : u.role === 'dealer' ? 'dealer123' : 'customer123';
-          apiService.login(u.email, defaultPass, u.role).then(loginRes => {
-            if (loginRes && loginRes.token) {
-              localStorage.setItem(STORAGE_KEYS.TOKEN, loginRes.token);
-              setCurrentUser(loginRes.user);
-            }
-          }).catch(() => {});
-        }
-      } catch {}
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.USER);
+      setCurrentUser(null);
     }
   }, []);
 
