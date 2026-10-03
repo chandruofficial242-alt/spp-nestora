@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { app } from './app.ts';
+import { emailService } from './emailService.ts';
 
 const PORT = parseInt(process.env.PORT || '10000', 10);
 const HOST = '0.0.0.0';
@@ -9,7 +10,9 @@ const HOST = '0.0.0.0';
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, HOST, () => {
     console.log(`[SPP Nestora] Production Server listening on ${HOST}:${PORT}`);
+    emailService.verifyConnection().catch(() => {});
   });
 }
 
 export default app;
+

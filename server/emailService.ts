@@ -1,11 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { User, Property, Enquiry, SiteVisit, Payment } from '../src/types/index.ts';
 
-// Official Admin Notification Destination
-const ADMIN_NOTIFICATION_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || 'chandruking901@gmail.com';
-const APP_NAME = process.env.BUSINESS_NAME || 'SPP Nestora';
-const OFFICIAL_PHONE = process.env.OFFICIAL_PHONE || '9715673055';
-
 interface EmailPayload {
   subject: string;
   text: string;
@@ -15,57 +10,144 @@ interface EmailPayload {
 class EmailService {
   private transporter: any = null;
   private isConfigured = false;
+  private lastCheckedConfig: string = '';
 
   constructor() {
     this.initTransport();
   }
 
-  private initTransport() {
-    const host = process.env.SMTP_HOST;
-    const port = Number(process.env.SMTP_PORT) || 587;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASSWORD;
+  private getSmtpConfig() {
+    const rawUser = process.env.SMTP_USER || process.env.SMTP_USERNAME || process.env.EMAIL_USER || process.env.GMAIL_USER || '';
+    const user = rawUser.trim();
 
-    if (host && user && pass) {
+    const rawPass = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD || '';
+    // Strip spaces (e.g. Gmail 16-character App Passwords "abcd efgh ijkl mnop" -> "abcdefghijklmnop")
+    const pass = rawPass.replace(/\s+/g, '');
+
+    const explicitHost = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+    const isGmail = (explicitHost && explicitHost.includes('gmail')) || user.toLowerCase().endsWith('@gmail.com');
+    const host = explicitHost || (isGmail ? 'smtp.gmail.com' : '');
+
+    const portEnv = process.env.SMTP_PORT || process.env.EMAIL_PORT;
+    const port = portEnv ? Number(portEnv) : (host === 'smtp.gmail.com' ? 465 : 587);
+
+    const secureEnv = process.env.SMTP_SECURE;
+    const secure = secureEnv !== undefined ? (secureEnv === 'true' || secureEnv === '1') : (port === 465);
+
+    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || 'chandruking901@gmail.com';
+    const appName = process.env.BUSINESS_NAME || 'SPP Nestora';
+    const officialPhone = process.env.OFFICIAL_PHONE || '9715673055';
+
+    return {
+      host,
+      port,
+      secure,
+      user,
+      pass,
+      isGmail,
+      adminEmail,
+      appName,
+      officialPhone
+    };
+  }
+
+  public initTransport(): boolean {
+    const config = this.getSmtpConfig();
+    const configKey = `${config.host}:${config.port}:${config.user}:${config.pass ? 'hasPass' : 'noPass'}`;
+
+    if (configKey === this.lastCheckedConfig && this.transporter) {
+      return this.isConfigured;
+    }
+
+    this.lastCheckedConfig = configKey;
+
+    if (config.user && config.pass) {
       try {
-        this.transporter = nodemailer.createTransport({
-          host,
-          port,
-          secure: port === 465,
-          auth: {
-            user,
-            pass
-          }
-        });
+        if (config.isGmail) {
+          this.transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+              user: config.user,
+              pass: config.pass
+            }
+          });
+        } else {
+          this.transporter = nodemailer.createTransport({
+            host: config.host || 'localhost',
+            port: config.port,
+            secure: config.secure,
+            auth: {
+              user: config.user,
+              pass: config.pass
+            },
+            tls: {
+              rejectUnauthorized: false
+            },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 15000
+          });
+        }
         this.isConfigured = true;
-        console.log(`[Email Service] SMTP Transport configured for ${host}:${port}`);
+        console.log(`[Email Service] SMTP Transport configured for ${config.isGmail ? 'Gmail Service' : config.host + ':' + config.port} (Sender: ${config.user})`);
+        return true;
       } catch (err: any) {
-        console.warn('[Email Service] Failed to initialize SMTP transport:', err.message);
+        console.warn('[Email Service] Failed to initialize SMTP transport:', err.message || err);
         this.isConfigured = false;
+        this.transporter = null;
+        return false;
       }
     } else {
-      console.log('[Email Service] SMTP credentials not provided in environment. Email notifications will operate in safe diagnostic log mode.');
       this.isConfigured = false;
+      this.transporter = null;
+      return false;
+    }
+  }
+
+  public async verifyConnection(): Promise<{ verified: boolean; error?: string }> {
+    const config = this.getSmtpConfig();
+    if (!config.user || !config.pass) {
+      return { verified: false, error: 'SMTP credentials not provided in environment' };
+    }
+
+    this.initTransport();
+
+    if (!this.transporter) {
+      return { verified: false, error: 'Transporter could not be created' };
+    }
+
+    try {
+      await this.transporter.verify();
+      console.log('[Email Service] SMTP connection verified');
+      return { verified: true };
+    } catch (err: any) {
+      console.warn('[Email Service] SMTP authentication failed:', err.message || err);
+      return { verified: false, error: err.message || 'SMTP verification failed' };
     }
   }
 
   public async sendNotification(payload: EmailPayload): Promise<{ success: boolean; delivered: boolean; error?: string }> {
-    const recipient = ADMIN_NOTIFICATION_EMAIL;
+    const config = this.getSmtpConfig();
+    const recipient = config.adminEmail;
 
+    console.log('[Email Service] Attempting admin notification...');
     console.log(`[Admin Email Notification Dispatch]
 To: ${recipient}
 Subject: ${payload.subject}
 Timestamp: ${new Date().toISOString()}
 `);
 
+    this.initTransport();
+
     if (!this.isConfigured || !this.transporter) {
-      console.log(`[Safe Notification Log] (SMTP not configured, email logged safely):\n${payload.text}\n`);
+      console.log('[Email Service] SMTP credentials not configured in environment (SMTP_USER/SMTP_PASSWORD missing). Notification logged safely.');
+      console.log(`[Safe Notification Log]:\n${payload.text}\n`);
       return { success: true, delivered: false };
     }
 
     try {
-      const fromAddress = process.env.SMTP_FROM || `"${APP_NAME} Notifications" <${process.env.SMTP_USER || 'no-reply@sppnestora.com'}>`;
-      
+      const fromAddress = process.env.SMTP_FROM || process.env.EMAIL_FROM || `"${config.appName}" <${config.user}>`;
+
       await this.transporter.sendMail({
         from: fromAddress,
         to: recipient,
@@ -74,16 +156,20 @@ Timestamp: ${new Date().toISOString()}
         html: payload.html
       });
 
-      console.log(`[Email Service] Successfully delivered email notification to ${recipient}`);
+      console.log('[Email Service] SMTP connection verified');
+      console.log(`[Email Service] Admin notification sent successfully to ${recipient}`);
       return { success: true, delivered: true };
     } catch (err: any) {
-      console.warn(`[Email Service Warning] Failed to deliver email notification to ${recipient}:`, err.message);
-      return { success: false, delivered: false, error: err.message };
+      const safeError = err.message || 'Unknown SMTP error';
+      console.warn('[Email Service] SMTP authentication failed or delivery error');
+      console.warn(`[Email Service] Email notification failed: ${safeError}`);
+      return { success: false, delivered: false, error: safeError };
     }
   }
 
   // 1. New Customer / Contact Enquiry Notification
   public async sendCustomerEnquiryNotification(enquiry: Enquiry): Promise<void> {
+    const config = this.getSmtpConfig();
     const subject = `New SPP Nestora Customer Enquiry – ${enquiry.id}`;
     const text = `SPP Nestora – New Customer Enquiry
 
@@ -141,7 +227,7 @@ Website
           </div>
         </div>
         <div style="background: #f1f5f9; padding: 12px; text-align: center; font-size: 11px; color: #64748b;">
-          SPP Nestora Central Real-Estate Platform • Official Desk: +91 ${OFFICIAL_PHONE}
+          SPP Nestora Central Real-Estate Platform • Official Desk: +91 ${config.officialPhone}
         </div>
       </div>
     `;

@@ -152,6 +152,33 @@
       "dealerStatus": "pending",
       "passwordHash": "dd9da42c618b5d7bff2420c8f7cd2cee892e4b97cdddc58e5f1a1a4f97257ebbdf24cccaf03209843a5da2a72e3fa52bdde3b11a75a5546428bdd06c6ba75b51",
       "salt": "8f88d9edc5e4a6bc0478c77659f1170a"
+    },
+    {
+      "id": "usr-1791023538440-289",
+      "name": "Vijay Raghavan",
+      "email": "vijay.1791023538439@example.com",
+      "phone": "+91 98412 34567",
+      "role": "customer",
+      "avatar": "https://api.dicebear.com/7.x/initials/svg?seed=Vijay%20Raghavan",
+      "createdAt": "2026-10-03T10:32:18.440Z",
+      "passwordHash": "b094ec1f1b33d2946e52de688e31600446e8b7d53fa6d0e21df892b39ee9af2c63020a0a4b5b143bc48369f95f0705e18a77c2348676900d1c8b60eab1353011",
+      "salt": "b97cba3c18efc61b049b138ee09dc0ce"
+    },
+    {
+      "id": "usr-1791023538457-679",
+      "name": "Sundar Properties",
+      "email": "sundar.1791023538456@example.com",
+      "phone": "+91 94441 98765",
+      "role": "dealer",
+      "avatar": "https://api.dicebear.com/7.x/initials/svg?seed=Sundar%20Properties",
+      "createdAt": "2026-10-03T10:32:18.457Z",
+      "businessName": "Sundar Real Estate Developers",
+      "district": "Chennai",
+      "city": "Anna Nagar",
+      "dealerType": "agency",
+      "dealerStatus": "pending",
+      "passwordHash": "47a04d3681222ae26d92fe3025936c8f9d906c12e597b2fa00a99821f19ef8453e36ee0be281c1ea2403c87929d73fd71af3b45615601fc1c12d20aee4cad6a6",
+      "salt": "507125c038bc25859d1407b071ef23a5"
     }
   ],
   "properties": [
@@ -663,6 +690,24 @@
   ],
   "enquiries": [
     {
+      "propertyId": "general-desk",
+      "propertyCode": "SPP-GEN-DESK",
+      "propertyTitle": "General Property Inquiry - Diagnostic Test",
+      "propertyType": "house_sale",
+      "propertyLocation": "Tamil Nadu Central Desk",
+      "propertyPrice": 0,
+      "dealerId": "admin-desk",
+      "customerName": "Senthil Nathan",
+      "customerPhone": "+91 97156 73055",
+      "customerEmail": "senthil.nathan@example.com",
+      "channel": "form",
+      "message": "Testing contact enquiry email notification flow with complete details.",
+      "status": "new",
+      "id": "enq-1791023538436",
+      "createdAt": "2026-10-03T10:32:18.436Z",
+      "updatedAt": "2026-10-03T10:32:18.437Z"
+    },
+    {
       "propertyId": "SPP-MDU-000103",
       "propertyCode": "SPP-MDU-000103",
       "propertyTitle": "Madurai Villa Consultation",
@@ -771,6 +816,22 @@
     }
   ],
   "site_visits": [
+    {
+      "propertyId": "prop-001",
+      "propertyCode": "SPP-CHN-000101",
+      "propertyTitle": "Premium 3BHK Villa in Anna Nagar West",
+      "propertyAddress": "12th Main Road, Anna Nagar West, Chennai",
+      "dealerId": "dealer-01",
+      "customerId": "usr-1791023538440-289",
+      "customerName": "Vijay Raghavan",
+      "customerPhone": "+91 98412 34567",
+      "date": "2026-10-10",
+      "time": "11:00 AM",
+      "status": "requested",
+      "notes": "Interested in seeing east-facing units.",
+      "id": "sv-1791023538459",
+      "createdAt": "2026-10-03T10:32:18.459Z"
+    },
     {
       "propertyId": "prop-001",
       "propertyCode": "SPP-CHN-000101",

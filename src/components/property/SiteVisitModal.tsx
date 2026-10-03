@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Property } from '../../types';
+import { apiService } from '../../services/api';
 import { Calendar, Clock, User, Phone, MessageSquare, X, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
 interface Props {
@@ -30,7 +31,25 @@ export const SiteVisitModal: React.FC<Props> = ({ property, isOpen, onClose }) =
     e.preventDefault();
     if (!name || !phone) return;
 
-    // 1. Add Enquiry to Admin CRM
+    // 1. Submit to server API (PostgreSQL + Email Notification)
+    apiService.scheduleSiteVisit({
+      propertyId: property.id,
+      propertyCode: property.propertyCode,
+      propertyTitle: property.title,
+      propertyAddress: property.address,
+      dealerId: property.dealerId,
+      customerId: currentUser?.id || 'guest-customer',
+      customerName: name,
+      customerPhone: phone,
+      customerEmail: email,
+      date,
+      time,
+      notes: message
+    }).catch(err => {
+      console.warn('Backend site visit scheduling warning:', err);
+    });
+
+    // 2. Add Enquiry to Admin CRM
     addEnquiry({
       propertyId: property.id,
       propertyCode: property.propertyCode,
@@ -49,7 +68,7 @@ export const SiteVisitModal: React.FC<Props> = ({ property, isOpen, onClose }) =
       status: 'new'
     });
 
-    // 2. Schedule Site Visit record
+    // 3. Schedule Site Visit record in local context
     scheduleSiteVisit({
       propertyId: property.id,
       propertyCode: property.propertyCode,
