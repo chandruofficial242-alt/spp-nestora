@@ -1,5 +1,11 @@
+import dns from 'dns';
 import nodemailer from 'nodemailer';
 import type { User, Property, Enquiry, SiteVisit, Payment } from '../src/types/index.ts';
+
+// Force IPv4 resolution to prevent ENETUNREACH on Render Linux containers
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch (_) {}
 
 interface EmailPayload {
   subject: string;
@@ -29,7 +35,7 @@ class EmailService {
     const host = explicitHost || (isGmail ? 'smtp.gmail.com' : '');
 
     const portEnv = process.env.SMTP_PORT || process.env.EMAIL_PORT;
-    const port = portEnv ? Number(portEnv) : (host === 'smtp.gmail.com' ? 465 : 587);
+    const port = portEnv ? Number(portEnv) : (isGmail ? 465 : 587);
 
     const secureEnv = process.env.SMTP_SECURE;
     const secure = secureEnv !== undefined ? (secureEnv === 'true' || secureEnv === '1') : (port === 465);
@@ -63,13 +69,21 @@ class EmailService {
 
     if (config.user && config.pass) {
       try {
-        if (config.isGmail) {
+        if (config.isGmail || config.host === 'smtp.gmail.com') {
           this.transporter = nodemailer.createTransport({
-            service: 'gmail',
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true, // SSL
             auth: {
               user: config.user,
               pass: config.pass
-            }
+            },
+            tls: {
+              rejectUnauthorized: false
+            },
+            connectionTimeout: 15000,
+            greetingTimeout: 15000,
+            socketTimeout: 30000
           });
         } else {
           this.transporter = nodemailer.createTransport({
@@ -83,13 +97,13 @@ class EmailService {
             tls: {
               rejectUnauthorized: false
             },
-            connectionTimeout: 10000,
-            greetingTimeout: 10000,
-            socketTimeout: 15000
+            connectionTimeout: 15000,
+            greetingTimeout: 15000,
+            socketTimeout: 30000
           });
         }
         this.isConfigured = true;
-        console.log(`[Email Service] SMTP Transport configured for ${config.isGmail ? 'Gmail Service' : config.host + ':' + config.port} (Sender: ${config.user})`);
+        console.log(`[Email Service] SMTP Transport configured for ${config.isGmail ? 'Gmail Service (smtp.gmail.com:465 SSL)' : config.host + ':' + config.port} (Sender: ${config.user})`);
         return true;
       } catch (err: any) {
         console.warn('[Email Service] Failed to initialize SMTP transport:', err.message || err);
@@ -104,28 +118,32 @@ class EmailService {
     }
   }
 
-  public async verifyConnection(): Promise<{ verified: boolean; error?: string }> {
+  public async verifyConnection(): Promise<{ verified: boolean; error?: string; errorCode?: string }> {
     const config = this.getSmtpConfig();
     if (!config.user || !config.pass) {
       console.log('[Email Service] SMTP credentials not configured in environment (SMTP_USER/SMTP_PASSWORD missing). Notification logged safely.');
-      return { verified: false, error: 'SMTP credentials not provided in environment' };
+      return { verified: false, error: 'SMTP credentials not provided in environment', errorCode: 'NO_CREDENTIALS' };
     }
 
     this.initTransport();
 
     if (!this.transporter) {
       console.warn('[Email Service] SMTP transporter could not be initialized');
-      return { verified: false, error: 'Transporter could not be created' };
+      return { verified: false, error: 'Transporter could not be created', errorCode: 'INIT_ERROR' };
     }
 
     try {
       await this.transporter.verify();
       console.log('[Email Service] SMTP connection verified');
+      console.log('[Email Diagnostic] SMTP connection verified');
       return { verified: true };
     } catch (err: any) {
       const safeError = err.message || 'SMTP verification failed';
       console.warn('[Email Service] SMTP authentication failed:', safeError);
-      return { verified: false, error: safeError };
+      console.warn(`[Email Diagnostic] LIVE EMAIL TEST FAILED`);
+      console.warn(`[Email Diagnostic] Error code: ${err.code || 'AUTH_FAILED'}`);
+      console.warn(`[Email Diagnostic] Error message: ${safeError}`);
+      return { verified: false, error: safeError, errorCode: err.code || 'AUTH_FAILED' };
     }
   }
 
@@ -140,21 +158,24 @@ class EmailService {
     hasPassword: boolean;
     verified: boolean;
     verifyError?: string;
+    verifyErrorCode?: string;
   }> {
     const config = this.getSmtpConfig();
     const hasCreds = Boolean(config.user && config.pass);
     let verified = false;
     let verifyError: string | undefined;
+    let verifyErrorCode: string | undefined;
 
     if (hasCreds) {
       const check = await this.verifyConnection();
       verified = check.verified;
       verifyError = check.error;
+      verifyErrorCode = check.errorCode;
     }
 
     return {
       configured: hasCreds,
-      provider: config.isGmail ? 'Gmail Service (smtp.gmail.com)' : (config.host || 'none'),
+      provider: config.isGmail ? 'Gmail Service (smtp.gmail.com:465 SSL)' : (config.host || 'none'),
       host: config.host || (config.isGmail ? 'smtp.gmail.com' : 'none'),
       port: config.port,
       secure: config.secure,
@@ -162,13 +183,23 @@ class EmailService {
       recipientEmail: config.adminEmail,
       hasPassword: Boolean(config.pass),
       verified,
-      verifyError
+      verifyError,
+      verifyErrorCode
     };
   }
 
-  public async sendTestEmail(): Promise<{ success: boolean; delivered: boolean; recipient: string; error?: string }> {
+  public async sendTestEmail(): Promise<{
+    success: boolean;
+    delivered: boolean;
+    recipient: string;
+    messageId?: string;
+    error?: string;
+    errorCode?: string;
+  }> {
     const config = this.getSmtpConfig();
     const recipient = config.adminEmail;
+
+    console.log('[Email Diagnostic] Starting LIVE SMTP test');
 
     const payload: EmailPayload = {
       subject: `SPP Nestora – Production SMTP Test (${new Date().toLocaleTimeString('en-IN')})`,
@@ -204,11 +235,18 @@ SUCCESS - Live Delivery Verified
       `
     };
 
+    console.log(`[Email Diagnostic] Sending test email to ${recipient}`);
     const res = await this.sendNotification(payload);
     return { ...res, recipient };
   }
 
-  public async sendNotification(payload: EmailPayload): Promise<{ success: boolean; delivered: boolean; error?: string }> {
+  public async sendNotification(payload: EmailPayload): Promise<{
+    success: boolean;
+    delivered: boolean;
+    messageId?: string;
+    error?: string;
+    errorCode?: string;
+  }> {
     const config = this.getSmtpConfig();
     const recipient = config.adminEmail;
 
@@ -233,7 +271,7 @@ Timestamp: ${new Date().toISOString()}
     try {
       const fromAddress = process.env.SMTP_FROM || process.env.EMAIL_FROM || `"${config.appName}" <${config.user}>`;
 
-      await this.transporter.sendMail({
+      const info = await this.transporter.sendMail({
         from: fromAddress,
         to: recipient,
         subject: payload.subject,
@@ -244,12 +282,29 @@ Timestamp: ${new Date().toISOString()}
       console.log('[Email Service] SMTP connection verified');
       console.log('[Email Service] Email sent successfully');
       console.log(`[Email Service] Admin notification sent successfully to ${recipient}`);
-      return { success: true, delivered: true };
+      console.log('[Email Diagnostic] SMTP accepted message');
+      console.log(`[Email Diagnostic] Message ID: ${info.messageId || 'generated'}`);
+      console.log('[Email Diagnostic] LIVE EMAIL TEST SUCCESS');
+
+      return {
+        success: true,
+        delivered: true,
+        messageId: info.messageId
+      };
     } catch (err: any) {
       const safeError = err.message || 'Unknown SMTP error';
       console.warn('[Email Service] SMTP authentication failed or delivery error');
       console.warn(`[Email Service] Email send failed: ${safeError}`);
-      return { success: false, delivered: false, error: safeError };
+      console.warn('[Email Diagnostic] LIVE EMAIL TEST FAILED');
+      console.warn(`[Email Diagnostic] Error code: ${err.code || 'SMTP_ERROR'}`);
+      console.warn(`[Email Diagnostic] Error message: ${safeError}`);
+
+      return {
+        success: false,
+        delivered: false,
+        error: safeError,
+        errorCode: err.code || 'SMTP_ERROR'
+      };
     }
   }
 
