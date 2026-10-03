@@ -58,7 +58,23 @@ class EmailService {
     };
   }
 
-  private createTransporterInstance(host: string, port: number, secure: boolean, user: string, pass: string) {
+  private createTransporterInstance(host: string, port: number, secure: boolean, user: string, pass: string, forceCustom = false) {
+    if (!forceCustom && (user.toLowerCase().endsWith('@gmail.com') || host.includes('gmail'))) {
+      return nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user,
+          pass
+        },
+        tls: {
+          rejectUnauthorized: false
+        },
+        connectionTimeout: 15000,
+        greetingTimeout: 15000,
+        socketTimeout: 20000
+      } as any);
+    }
+
     return nodemailer.createTransport({
       host,
       port,
@@ -128,10 +144,10 @@ class EmailService {
       console.log('[Email Diagnostic] SMTP connection verified');
       return { verified: true };
     } catch (err: any) {
-      // If primary port (e.g. 587) fails with timeout/connection error, attempt fallback to port 465 (or vice-versa)
+      // If service: 'gmail' or primary transport fails, attempt direct port 587 / 465 fallback
       const fallbackPort = config.port === 587 ? 465 : 587;
       const fallbackSecure = fallbackPort === 465;
-      console.log(`[Email Service] Primary SMTP port ${config.port} check encountered issue: ${err.message}. Trying fallback port ${fallbackPort}...`);
+      console.log(`[Email Service] Primary SMTP check encountered issue: ${err.message}. Trying direct host fallback port ${fallbackPort}...`);
       
       try {
         const fallbackTransporter = this.createTransporterInstance(
@@ -139,7 +155,8 @@ class EmailService {
           fallbackPort,
           fallbackSecure,
           config.user,
-          config.pass
+          config.pass,
+          true
         );
         await fallbackTransporter.verify();
         this.transporter = fallbackTransporter;
@@ -185,7 +202,7 @@ class EmailService {
 
     return {
       configured: hasCreds,
-      provider: config.isGmail ? 'Gmail Service (smtp.gmail.com:465 SSL)' : (config.host || 'none'),
+      provider: config.isGmail ? `Gmail Service (${config.host || 'smtp.gmail.com'}:${config.port} ${config.secure ? 'SSL' : 'STARTTLS'})` : (config.host || 'none'),
       host: config.host || (config.isGmail ? 'smtp.gmail.com' : 'none'),
       port: config.port,
       secure: config.secure,
