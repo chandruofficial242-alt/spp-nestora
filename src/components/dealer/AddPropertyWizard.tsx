@@ -777,7 +777,7 @@ export const AddPropertyWizard: React.FC = () => {
         <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-elevated space-y-6">
           
           <div className="text-center max-w-md mx-auto space-y-2">
-            <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-800 flex items-center justify-center mx-auto text-2xl font-black">
+            <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-800 flex items-center justify-center mx-auto text-2xl font-black shadow-inner">
               ₹{settings.listingFeeAmount || 10}
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-900">
@@ -791,7 +791,7 @@ export const AddPropertyWizard: React.FC = () => {
           {/* Pricing Box */}
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 max-w-md mx-auto space-y-3">
             <div className="flex justify-between text-xs text-slate-600">
-              <span>Listing Service Fee:</span>
+              <span>Property Listing Fee:</span>
               <span className="font-bold text-slate-900">₹{settings.listingFeeAmount || 10}.00</span>
             </div>
             <div className="flex justify-between text-xs text-slate-600">
@@ -807,7 +807,7 @@ export const AddPropertyWizard: React.FC = () => {
           {/* Payment Methods Info */}
           <div className="max-w-md mx-auto space-y-3">
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Preferred Payment Method (Powered by Razorpay)
+              Payment Methods (Powered by Razorpay)
             </label>
 
             <div className="grid grid-cols-3 gap-2">
@@ -821,7 +821,8 @@ export const AddPropertyWizard: React.FC = () => {
                 }`}
               >
                 <QrCode className="w-5 h-5 text-brand-700" />
-                <span>UPI / QR Apps</span>
+                <span>UPI / QR</span>
+                <span className="text-[10px] text-slate-500 font-normal">GPay, PhonePe, Paytm</span>
               </button>
 
               <button
@@ -835,6 +836,7 @@ export const AddPropertyWizard: React.FC = () => {
               >
                 <CreditCard className="w-5 h-5 text-brand-700" />
                 <span>Debit / Credit</span>
+                <span className="text-[10px] text-slate-500 font-normal">Visa, MC, RuPay</span>
               </button>
 
               <button
@@ -848,8 +850,22 @@ export const AddPropertyWizard: React.FC = () => {
               >
                 <Building2 className="w-5 h-5 text-brand-700" />
                 <span>NetBanking</span>
+                <span className="text-[10px] text-slate-500 font-normal">All Major Banks</span>
               </button>
             </div>
+
+            {/* UPI App & QR scan guidance */}
+            {paymentMethod === 'upi' && (
+              <div className="p-3 bg-brand-50/60 border border-brand-200 rounded-xl text-[11px] text-brand-900 space-y-1">
+                <span className="font-bold flex items-center">
+                  <QrCode className="w-3.5 h-3.5 mr-1 text-brand-700" />
+                  Instant UPI App / QR Checkout
+                </span>
+                <p className="text-slate-600 leading-snug">
+                  Pay directly via Google Pay, PhonePe, Paytm, BHIM, or scan the official Razorpay dynamic UPI QR code on screen.
+                </p>
+              </div>
+            )}
 
             {/* Official Transparent Policy Notice */}
             <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1.5 text-xs text-emerald-950">
@@ -894,7 +910,7 @@ export const AddPropertyWizard: React.FC = () => {
       {/* STEP 7: SUCCESS RECEIPT */}
       {currentStep === 7 && receipt && createdProperty && (
         <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-elevated max-w-lg mx-auto text-center space-y-5">
-          <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+          <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-inner">
             <CheckCircle2 className="w-10 h-10" />
           </div>
 
@@ -905,22 +921,38 @@ export const AddPropertyWizard: React.FC = () => {
             </p>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left text-xs space-y-2">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Property ID:</span>
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left text-xs space-y-2.5">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-200/70">
+              <span className="text-slate-500 font-medium">Property Code:</span>
               <span className="font-mono font-bold text-slate-900">{createdProperty.propertyCode}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Title:</span>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500">Property Title:</span>
               <span className="font-semibold text-slate-900 truncate max-w-[200px]">{createdProperty.title}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-slate-500">Listing Fee Paid:</span>
-              <span className="font-bold text-emerald-700">₹{receipt.amount}.00 ({receipt.method.toUpperCase()})</span>
+              <span className="font-bold text-slate-900">₹{Number(receipt.amount).toFixed(2)}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500">Payment Method:</span>
+              <span className="font-bold text-slate-900 uppercase">{receipt.method || 'UPI'}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500">Payment ID:</span>
+              <span className="font-mono text-[11px] font-bold text-brand-800 bg-brand-50 px-2 py-0.5 rounded">
+                {receipt.transactionRef || receipt.id}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
               <span className="text-slate-500">Status:</span>
-              <span className="font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+              <span className="font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                Payment Verified
+              </span>
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-slate-200/70">
+              <span className="text-slate-500">Property Status:</span>
+              <span className="font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full">
                 Pending Admin Approval
               </span>
             </div>
@@ -929,7 +961,7 @@ export const AddPropertyWizard: React.FC = () => {
           <div className="flex items-center space-x-3 pt-2">
             <button
               onClick={() => navigate('/dealer/dashboard')}
-              className="flex-1 py-3 bg-brand-800 hover:bg-brand-900 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+              className="flex-1 py-3 bg-brand-800 hover:bg-brand-900 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm"
             >
               Go to Dealer Dashboard
             </button>

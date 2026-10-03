@@ -2,7 +2,7 @@ import express from 'express';
 import { db } from './db.ts';
 import { authenticate, requireRole, generateAuthToken, type AuthenticatedRequest } from './auth.ts';
 import { sanitizePropertyForPublic, sanitizePropertiesListForPublic, sanitizeUser } from './sanitizer.ts';
-import { paymentGateway } from './paymentService.ts';
+import { paymentGateway, verifyRazorpayWebhookSignature, handleWebhookPaymentReconciliation } from './paymentService.ts';
 import { uploadMiddleware, processUploadedFile } from './uploadService.ts';
 import { createRateLimiter } from './rateLimiter.ts';
 import type { User, Property, PropertyStatus, EnquiryStatus, SiteVisitStatus, DealerStatus } from '../src/types/index.ts';
@@ -323,6 +323,23 @@ router.post('/payments/verify', paymentLimiter, authenticate, requireRole(['deal
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Payment verification failed' });
   }
+});
+
+// Razorpay Webhook Endpoint for automated server reconciliation
+router.post('/payments/webhook', (req, res) => {
+  const signature = req.headers['x-razorpay-signature'] as string;
+  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || '';
+
+  if (webhookSecret && signature) {
+    const rawBody = JSON.stringify(req.body);
+    const isValid = verifyRazorpayWebhookSignature(rawBody, signature, webhookSecret);
+    if (!isValid) {
+      return res.status(400).json({ error: 'Invalid webhook signature' });
+    }
+  }
+
+  const result = handleWebhookPaymentReconciliation(req.body);
+  return res.json({ status: 'ok', ...result });
 });
 
 router.get('/payments', authenticate, (req: AuthenticatedRequest, res) => {

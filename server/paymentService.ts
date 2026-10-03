@@ -225,6 +225,70 @@ export class SandboxPaymentGateway implements IPaymentGateway {
   }
 }
 
+// Webhook signature validator
+export function verifyRazorpayWebhookSignature(rawBody: string | Buffer, signature: string, webhookSecret: string): boolean {
+  if (!signature || !webhookSecret) return false;
+  try {
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSignature, 'utf8'),
+      Buffer.from(signature, 'utf8')
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Reconcile payment from webhook event
+export function handleWebhookPaymentReconciliation(event: any): { success: boolean; message: string; payment?: Payment } {
+  try {
+    const paymentEntity = event?.payload?.payment?.entity;
+    if (!paymentEntity) {
+      return { success: false, message: 'Missing payment entity in webhook payload' };
+    }
+
+    const propertyId = paymentEntity.notes?.propertyId;
+    const propertyTitle = paymentEntity.notes?.propertyTitle || 'Property Listing';
+    const dealerId = paymentEntity.notes?.dealerId || 'dealer';
+    const paymentId = paymentEntity.id;
+    const amountInRupees = Math.round((paymentEntity.amount || 1000) / 100);
+    const method = (paymentEntity.method || 'upi') as 'upi' | 'card' | 'netbanking' | 'wallet';
+
+    if (!propertyId) {
+      return { success: false, message: 'Webhook event has no propertyId note attached' };
+    }
+
+    // Check if already recorded
+    const existing = db.getSnapshot().payments.find(p => p.transactionRef === `RZP-${paymentId}` || (p.propertyId === propertyId && p.status === 'success'));
+    if (existing) {
+      return { success: true, message: 'Payment already reconciled', payment: existing };
+    }
+
+    const dealer = db.findUserById(dealerId) || db.findUserByEmail(paymentEntity.email);
+    const dealerName = dealer?.businessName || dealer?.name || 'Authorized Dealer';
+
+    const paymentRecord = db.recordPayment({
+      dealerId: dealer?.id || dealerId,
+      dealerName,
+      propertyId,
+      propertyTitle,
+      amount: amountInRupees,
+      method,
+      status: 'success',
+      transactionRef: `RZP-${paymentId}`
+    });
+
+    db.updatePropertyStatus(propertyId, 'pending_approval', dealerId, 'dealer', 'Listing fee reconciled automatically via Razorpay webhook');
+
+    return { success: true, message: 'Payment successfully reconciled', payment: paymentRecord };
+  } catch (err: any) {
+    return { success: false, message: err.message || 'Webhook reconciliation error' };
+  }
+}
+
 // Instantiate proper gateway depending on environment
 const rzpKeyId = (process.env.RAZORPAY_KEY_ID || '').trim();
 const rzpKeySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
@@ -241,4 +305,4 @@ export const paymentGateway: IPaymentGateway = isRealKeysConfigured
   : new SandboxPaymentGateway();
 
 
-console.log(`[SPP Nestora Payment] Gateway initialized: ${isRealKeysConfigured ? 'Live/Test Razorpay Gateway' : 'Sandbox Gateway (No live keys provided)'}`);
+console.log(`[SPP Nestora Payment] Gateway initialized: ${isRealKeysConfigured ? (rzpKeyId.startsWith('rzp_live_') ? 'LIVE Razorpay Gateway' : 'TEST Razorpay Gateway') : 'Sandbox Gateway (No live keys provided)'}`);
