@@ -7,12 +7,26 @@ try {
   dns.setDefaultResultOrder('ipv4first');
 } catch (_) {}
 
-// Custom DNS lookup that strictly enforces IPv4 (family 4)
-const ipv4Lookup = (hostname: string, _options: any, callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void) => {
-  dns.lookup(hostname, { family: 4, all: false }, (err, address, family) => {
-    callback(err, address, family);
-  });
-};
+// Helper to resolve an IPv4 address for a hostname
+async function resolveIpv4Host(hostname: string): Promise<string> {
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+    return hostname;
+  }
+  try {
+    const addresses = await dns.promises.resolve4(hostname);
+    if (addresses && addresses.length > 0) {
+      return addresses[0];
+    }
+  } catch (_) {
+    try {
+      const result = await dns.promises.lookup(hostname, { family: 4 });
+      if (result && result.address) {
+        return result.address;
+      }
+    } catch (_) {}
+  }
+  return hostname;
+}
 
 interface EmailPayload {
   subject: string;
@@ -39,10 +53,10 @@ class EmailService {
 
     const explicitHost = process.env.SMTP_HOST || process.env.EMAIL_HOST;
     const isGmail = Boolean((explicitHost && explicitHost.includes('gmail')) || user.toLowerCase().endsWith('@gmail.com'));
-    const host = explicitHost || (isGmail ? 'smtp.gmail.com' : 'smtp.gmail.com');
+    const host = explicitHost || 'smtp.gmail.com';
 
+    // Force port 587 STARTTLS for Gmail on Render Linux unless explicit port is given
     const portEnv = process.env.SMTP_PORT || process.env.EMAIL_PORT;
-    // Default to port 587 for cloud containers (Render/AWS) where STARTTLS on IPv4 is open
     const port = portEnv ? Number(portEnv) : 587;
 
     const secureEnv = process.env.SMTP_SECURE;
@@ -65,30 +79,32 @@ class EmailService {
     };
   }
 
-  private createTransporterInstance(host: string, port: number, secure: boolean, user: string, pass: string) {
-    // Explicit SMTP configuration with IPv4 DNS resolution and STARTTLS
+  private async createTransporterInstance(host: string, port: number, secure: boolean, user: string, pass: string) {
+    const targetHost = await resolveIpv4Host(host);
+    const isIp = targetHost !== host;
+
     return nodemailer.createTransport({
-      host,
+      host: targetHost,
       port,
       secure,
       requireTLS: !secure,
-      family: 4, // Strict IPv4 socket
-      lookup: ipv4Lookup, // Custom DNS resolver enforcing IPv4 A records
+      family: 4,
       auth: {
         user,
         pass
       },
       tls: {
+        servername: isIp ? host : undefined,
         rejectUnauthorized: false,
         minVersion: 'TLSv1.2'
       },
-      connectionTimeout: 20000,
-      greetingTimeout: 20000,
-      socketTimeout: 25000
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000
     } as any);
   }
 
-  public initTransport(): boolean {
+  public async initTransport(): Promise<boolean> {
     const config = this.getSmtpConfig();
     const configKey = `${config.host}:${config.port}:${config.secure}:${config.user}:${config.pass ? 'hasPass' : 'noPass'}`;
 
@@ -101,9 +117,9 @@ class EmailService {
     if (config.user && config.pass) {
       try {
         const host = config.host || 'smtp.gmail.com';
-        this.transporter = this.createTransporterInstance(host, config.port, config.secure, config.user, config.pass);
+        this.transporter = await this.createTransporterInstance(host, config.port, config.secure, config.user, config.pass);
         this.isConfigured = true;
-        console.log(`[Email Service] SMTP Transport configured for ${host} (Port: ${config.port}, Secure: ${config.secure}, Strict IPv4 STARTTLS, Sender: ${config.user.slice(0, 3)}***@${config.user.split('@')[1] || ''})`);
+        console.log(`[Email Service] SMTP Transport configured for ${host} (Port: ${config.port}, Secure: ${config.secure}, Strict IPv4, Sender: ${config.user.slice(0, 3)}***@${config.user.split('@')[1] || ''})`);
         return true;
       } catch (err: any) {
         console.warn('[Email Service] Failed to initialize SMTP transport:', err.message || err);
@@ -125,13 +141,14 @@ class EmailService {
       return { verified: false, error: 'SMTP credentials not provided in environment', errorCode: 'NO_CREDENTIALS' };
     }
 
-    this.initTransport();
+    await this.initTransport();
 
     if (!this.transporter) {
       console.warn('[Email Service] SMTP transporter could not be initialized');
       return { verified: false, error: 'Transporter could not be created', errorCode: 'INIT_ERROR' };
     }
 
+    // Try primary port (587 STARTTLS)
     try {
       await this.transporter.verify();
       console.log('[Email Service] SMTP IPv4 connection verified');
@@ -144,7 +161,7 @@ class EmailService {
       console.log(`[Email Service] Primary SMTP check on port ${config.port} encountered: ${err.message}. Retrying IPv4 fallback port ${fallbackPort}...`);
       
       try {
-        const fallbackTransporter = this.createTransporterInstance(
+        const fallbackTransporter = await this.createTransporterInstance(
           config.host || 'smtp.gmail.com',
           fallbackPort,
           fallbackSecure,
@@ -278,7 +295,7 @@ Subject: ${payload.subject}
 Timestamp: ${new Date().toISOString()}
 `);
 
-    this.initTransport();
+    await this.initTransport();
 
     if (!this.isConfigured || !this.transporter) {
       console.log('[Email Service] SMTP credentials not configured in environment (SMTP_USER/SMTP_PASSWORD missing). Notification logged safely.');
@@ -305,7 +322,7 @@ Timestamp: ${new Date().toISOString()}
         const fallbackPort = config.port === 587 ? 465 : 587;
         const fallbackSecure = fallbackPort === 465;
         console.log(`[Email Service] Primary SMTP send encountered: ${sendErr.message}. Retrying via fallback port ${fallbackPort}...`);
-        const fallbackTransporter = this.createTransporterInstance(
+        const fallbackTransporter = await this.createTransporterInstance(
           config.host || 'smtp.gmail.com',
           fallbackPort,
           fallbackSecure,
