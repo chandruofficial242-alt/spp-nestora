@@ -63,11 +63,16 @@ class EmailService {
     const secureEnv = process.env.SMTP_SECURE;
     const secure = secureEnv !== undefined ? (secureEnv === 'true' || secureEnv === '1') : (port === 465);
 
-    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || 'chandru.official242@gmail.com';
+    const isResend = Boolean(resendApiKey && resendApiKey.startsWith('re_'));
+    const isResendSandbox = isResend && resendFrom.includes('onboarding@resend.dev');
+
+    let adminEmail = (process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || 'chandru.official242@gmail.com').trim();
+    if (isResendSandbox && adminEmail !== 'chandru.official242@gmail.com') {
+      adminEmail = 'chandru.official242@gmail.com';
+    }
+
     const appName = process.env.BUSINESS_NAME || 'SPP Nestora';
     const officialPhone = process.env.OFFICIAL_PHONE || '9715673055';
-
-    const isResend = Boolean(resendApiKey && resendApiKey.startsWith('re_'));
 
     return {
       isResend,
