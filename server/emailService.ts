@@ -43,30 +43,36 @@ class EmailService {
     this.initTransport();
   }
 
-  private getSmtpConfig() {
+  private getConfig() {
+    const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
+    const resendFrom = (process.env.RESEND_FROM || process.env.EMAIL_FROM || 'SPP Nestora <onboarding@resend.dev>').trim();
+
     const rawUser = process.env.SMTP_USER || process.env.SMTP_USERNAME || process.env.EMAIL_USER || process.env.GMAIL_USER || '';
     const user = rawUser.trim();
 
     const rawPass = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD || '';
-    // Strip spaces (e.g. Gmail 16-character App Passwords "abcd efgh ijkl mnop" -> "abcdefghijklmnop")
     const pass = rawPass.replace(/\s+/g, '');
 
     const explicitHost = process.env.SMTP_HOST || process.env.EMAIL_HOST;
     const isGmail = Boolean((explicitHost && explicitHost.includes('gmail')) || user.toLowerCase().endsWith('@gmail.com'));
     const host = explicitHost || 'smtp.gmail.com';
 
-    // Force port 587 STARTTLS for Gmail on Render Linux unless explicit port is given
     const portEnv = process.env.SMTP_PORT || process.env.EMAIL_PORT;
     const port = portEnv ? Number(portEnv) : 587;
 
     const secureEnv = process.env.SMTP_SECURE;
     const secure = secureEnv !== undefined ? (secureEnv === 'true' || secureEnv === '1') : (port === 465);
 
-    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || 'chandruking901@gmail.com';
+    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || 'chandru.official242@gmail.com';
     const appName = process.env.BUSINESS_NAME || 'SPP Nestora';
     const officialPhone = process.env.OFFICIAL_PHONE || '9715673055';
 
+    const isResend = Boolean(resendApiKey && resendApiKey.startsWith('re_'));
+
     return {
+      isResend,
+      resendApiKey,
+      resendFrom,
       host,
       port,
       secure,
@@ -105,7 +111,13 @@ class EmailService {
   }
 
   public async initTransport(): Promise<boolean> {
-    const config = this.getSmtpConfig();
+    const config = this.getConfig();
+
+    if (config.isResend) {
+      this.isConfigured = true;
+      return true;
+    }
+
     const configKey = `${config.host}:${config.port}:${config.secure}:${config.user}:${config.pass ? 'hasPass' : 'noPass'}`;
 
     if (configKey === this.lastCheckedConfig && this.transporter) {
@@ -119,7 +131,7 @@ class EmailService {
         const host = config.host || 'smtp.gmail.com';
         this.transporter = await this.createTransporterInstance(host, config.port, config.secure, config.user, config.pass);
         this.isConfigured = true;
-        console.log(`[Email Service] SMTP Transport configured for ${host} (Port: ${config.port}, Secure: ${config.secure}, Strict IPv4, Sender: ${config.user.slice(0, 3)}***@${config.user.split('@')[1] || ''})`);
+        console.log(`[Email Service] SMTP Transport configured for ${host} (Port: ${config.port}, Secure: ${config.secure}, Strict IPv4)`);
         return true;
       } catch (err: any) {
         console.warn('[Email Service] Failed to initialize SMTP transport:', err.message || err);
@@ -135,10 +147,37 @@ class EmailService {
   }
 
   public async verifyConnection(): Promise<{ verified: boolean; error?: string; errorCode?: string }> {
-    const config = this.getSmtpConfig();
+    const config = this.getConfig();
+
+    // 1. Resend API Verification
+    if (config.isResend) {
+      try {
+        const res = await fetch('https://api.resend.com/api-keys', {
+          headers: {
+            'Authorization': `Bearer ${config.resendApiKey}`
+          }
+        });
+        if (res.ok) {
+          console.log('[Email Service] Resend API connection verified successfully');
+          console.log('[Email Diagnostic] Resend API connection verified');
+          return { verified: true };
+        } else {
+          const errData: any = await res.json().catch(() => ({}));
+          const safeError = errData.message || `Resend API error status ${res.status}`;
+          console.warn('[Email Service] Resend API verification failed:', safeError);
+          return { verified: false, error: safeError, errorCode: errData.name || 'RESEND_AUTH_ERROR' };
+        }
+      } catch (e: any) {
+        const safeError = e.message || 'Network error connecting to Resend API';
+        console.warn('[Email Service] Resend connection check error:', safeError);
+        return { verified: false, error: safeError, errorCode: 'RESEND_NETWORK_ERROR' };
+      }
+    }
+
+    // 2. SMTP Verification Fallback
     if (!config.user || !config.pass) {
-      console.log('[Email Service] SMTP credentials not configured in environment (SMTP_USER/SMTP_PASSWORD missing). Notification logged safely.');
-      return { verified: false, error: 'SMTP credentials not provided in environment', errorCode: 'NO_CREDENTIALS' };
+      console.log('[Email Service] Email service credentials not configured in environment (RESEND_API_KEY / SMTP missing). Notification logged safely.');
+      return { verified: false, error: 'Email service credentials not provided in environment', errorCode: 'NO_CREDENTIALS' };
     }
 
     await this.initTransport();
@@ -148,14 +187,12 @@ class EmailService {
       return { verified: false, error: 'Transporter could not be created', errorCode: 'INIT_ERROR' };
     }
 
-    // Try primary port (587 STARTTLS)
     try {
       await this.transporter.verify();
       console.log('[Email Service] SMTP IPv4 connection verified');
       console.log('[Email Diagnostic] SMTP IPv4 connection verified');
       return { verified: true };
     } catch (err: any) {
-      // Direct fallback between 587 (STARTTLS) and 465 (SSL) strictly over IPv4
       const fallbackPort = config.port === 587 ? 465 : 587;
       const fallbackSecure = fallbackPort === 465;
       console.log(`[Email Service] Primary SMTP check on port ${config.port} encountered: ${err.message}. Retrying IPv4 fallback port ${fallbackPort}...`);
@@ -197,7 +234,25 @@ class EmailService {
     verifyError?: string;
     verifyErrorCode?: string;
   }> {
-    const config = this.getSmtpConfig();
+    const config = this.getConfig();
+
+    if (config.isResend) {
+      const check = await this.verifyConnection();
+      return {
+        configured: true,
+        provider: 'Resend REST API (api.resend.com:443 HTTPS)',
+        host: 'api.resend.com',
+        port: 443,
+        secure: true,
+        senderEmail: config.resendFrom,
+        recipientEmail: config.adminEmail,
+        hasPassword: true,
+        verified: check.verified,
+        verifyError: check.error,
+        verifyErrorCode: check.errorCode
+      };
+    }
+
     const hasCreds = Boolean(config.user && config.pass);
     let verified = false;
     let verifyError: string | undefined;
@@ -233,17 +288,17 @@ class EmailService {
     error?: string;
     errorCode?: string;
   }> {
-    const config = this.getSmtpConfig();
+    const config = this.getConfig();
     const recipient = config.adminEmail;
 
-    console.log('[Email Diagnostic] Starting LIVE SMTP test');
+    console.log('[Email Diagnostic] Starting LIVE email test');
 
     const payload: EmailPayload = {
-      subject: `SPP Nestora – Production SMTP Test (${new Date().toLocaleTimeString('en-IN')})`,
-      text: `SPP Nestora – Production SMTP Test
+      subject: `SPP Nestora – Production Resend Email Test (${new Date().toLocaleTimeString('en-IN')})`,
+      text: `SPP Nestora – Production Resend Email Test
 
 This is an automated verification email from SPP Nestora Production API Server.
-If you are seeing this message, your Gmail SMTP / App Password integration is operating successfully!
+If you are seeing this message, your Resend API production email integration is operating successfully!
 
 Timestamp:
 ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (IST)
@@ -252,16 +307,16 @@ Recipient:
 ${recipient}
 
 Status:
-SUCCESS - Live Delivery Verified
+SUCCESS - Live Resend API Delivery Verified
 `,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; border: 1px solid #10b981; border-radius: 12px; overflow: hidden; background: #ffffff;">
           <div style="background: #0f3a22; color: #ffffff; padding: 20px; text-align: center;">
-            <h2 style="margin: 0; font-size: 20px;">SPP Nestora SMTP Test</h2>
-            <p style="margin: 4px 0 0 0; font-size: 12px; color: #a7f3d0;">Live Email Notification Verification</p>
+            <h2 style="margin: 0; font-size: 20px;">SPP Nestora Email Test</h2>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #a7f3d0;">Live Resend Email Integration Verification</p>
           </div>
           <div style="padding: 24px; color: #1e293b; font-size: 14px; line-height: 1.6;">
-            <p style="margin-top: 0;">This email confirms that the official <strong>SPP Nestora</strong> email notification system is functioning properly on Render production.</p>
+            <p style="margin-top: 0;">This email confirms that the official <strong>SPP Nestora</strong> email notification system is functioning properly on Render production via Resend.</p>
             <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
               <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Destination:</td><td style="padding: 8px 0; font-weight: bold; color: #0f3a22;">${recipient}</td></tr>
               <tr><td style="padding: 8px 0; color: #64748b;">Delivered At:</td><td style="padding: 8px 0;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (IST)</td></tr>
@@ -284,7 +339,7 @@ SUCCESS - Live Delivery Verified
     error?: string;
     errorCode?: string;
   }> {
-    const config = this.getSmtpConfig();
+    const config = this.getConfig();
     const recipient = config.adminEmail;
 
     console.log('[Email Service] Attempting admin notification...');
@@ -295,10 +350,69 @@ Subject: ${payload.subject}
 Timestamp: ${new Date().toISOString()}
 `);
 
+    // 1. Resend Dispatch
+    if (config.isResend) {
+      try {
+        console.log(`[Email Service] Dispatching via Resend API (from: ${config.resendFrom})...`);
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.resendApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            from: config.resendFrom,
+            to: [recipient],
+            subject: payload.subject,
+            text: payload.text,
+            html: payload.html
+          })
+        });
+
+        const data: any = await response.json();
+
+        if (!response.ok) {
+          const safeError = data.message || `Resend dispatch failed with status ${response.status}`;
+          console.warn('[Email Service] Resend API error:', safeError);
+          console.warn('[Email Diagnostic] LIVE EMAIL TEST FAILED');
+          console.warn(`[Email Diagnostic] Error code: ${data.name || 'RESEND_API_ERROR'}`);
+          console.warn(`[Email Diagnostic] Error message: ${safeError}`);
+
+          return {
+            success: false,
+            delivered: false,
+            error: safeError,
+            errorCode: data.name || 'RESEND_API_ERROR'
+          };
+        }
+
+        console.log(`[Email Service] Resend email sent successfully. Message ID: ${data.id}`);
+        console.log('[Email Diagnostic] Resend accepted message');
+        console.log(`[Email Diagnostic] Message ID: ${data.id}`);
+        console.log('[Email Diagnostic] LIVE EMAIL TEST SUCCESS');
+
+        return {
+          success: true,
+          delivered: true,
+          messageId: data.id
+        };
+      } catch (fetchErr: any) {
+        const safeError = fetchErr.message || 'Resend HTTP request failed';
+        console.warn('[Email Service] Resend network error:', safeError);
+        return {
+          success: false,
+          delivered: false,
+          error: safeError,
+          errorCode: 'RESEND_NETWORK_ERROR'
+        };
+      }
+    }
+
+    // 2. Fallback SMTP Dispatch
     await this.initTransport();
 
     if (!this.isConfigured || !this.transporter) {
-      console.log('[Email Service] SMTP credentials not configured in environment (SMTP_USER/SMTP_PASSWORD missing). Notification logged safely.');
+      console.log('[Email Service] Email service credentials not configured in environment. Notification logged safely.');
       console.log(`[Safe Notification Log]:\n${payload.text}\n`);
       return { success: true, delivered: false };
     }
@@ -318,7 +432,6 @@ Timestamp: ${new Date().toISOString()}
           html: payload.html
         });
       } catch (sendErr: any) {
-        // Attempt fallback port (587 -> 465 or 465 -> 587)
         const fallbackPort = config.port === 587 ? 465 : 587;
         const fallbackSecure = fallbackPort === 465;
         console.log(`[Email Service] Primary SMTP send encountered: ${sendErr.message}. Retrying via fallback port ${fallbackPort}...`);
@@ -369,8 +482,13 @@ Timestamp: ${new Date().toISOString()}
   }
 
   // 1. New Customer / Contact Enquiry Notification
-  public async sendCustomerEnquiryNotification(enquiry: Enquiry): Promise<void> {
-    const config = this.getSmtpConfig();
+  public async sendCustomerEnquiryNotification(enquiry: Enquiry): Promise<{
+    success: boolean;
+    delivered: boolean;
+    messageId?: string;
+    error?: string;
+  }> {
+    const config = this.getConfig();
     const subject = `New SPP Nestora Customer Enquiry – ${enquiry.id}`;
     const text = `SPP Nestora – New Customer Enquiry
 
@@ -433,7 +551,7 @@ Website
       </div>
     `;
 
-    await this.sendNotification({ subject, text, html });
+    return await this.sendNotification({ subject, text, html });
   }
 
   // 2. New Customer Registration Notification
