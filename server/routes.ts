@@ -71,7 +71,7 @@ router.post('/auth/register', registerLimiter, async (req, res) => {
       link: newUser.role === 'dealer' ? '/admin' : '/admin'
     });
 
-    // Send Email Notification to Admin (chandru.official242@gmail.com)
+    // Send Email Notification to Admin (chandruking901@gmail.com)
     if (newUser.role === 'dealer') {
       try {
         await emailService.sendDealerRegistrationNotification(newUser as User, 0);

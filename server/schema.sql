@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS admin_settings (
     official_phone_display VARCHAR(32) NOT NULL DEFAULT '+91 97156 73055',
     official_whatsapp VARCHAR(32) NOT NULL DEFAULT '919715673055',
     official_whatsapp_display VARCHAR(32) NOT NULL DEFAULT '+91 97156 73055',
-    official_email VARCHAR(255) NOT NULL DEFAULT 'chandru.official242@gmail.com',
+    official_email VARCHAR(255) NOT NULL DEFAULT 'chandruking901@gmail.com',
     support_hours VARCHAR(100) NOT NULL DEFAULT 'Mon - Sat: 9:00 AM - 8:00 PM IST',
     office_address TEXT NOT NULL DEFAULT 'SPP Nestora HQ, 4th Floor, Anna Salai Commercial Hub, Chennai, Tamil Nadu 600002',
     listing_fee_amount NUMERIC(10, 2) NOT NULL DEFAULT 10.00,

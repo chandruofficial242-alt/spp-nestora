@@ -42,7 +42,7 @@ export const INITIAL_SETTINGS: AdminSettings = {
   officialPhoneDisplay: '+91 97156 73055',
   officialWhatsApp: '919715673055',
   officialWhatsAppDisplay: '+91 97156 73055',
-  officialEmail: 'chandru.official242@gmail.com',
+  officialEmail: 'chandruking901@gmail.com',
   supportHours: 'Mon - Sat: 9:00 AM - 8:00 PM IST',
   officeAddress: 'SPP Nestora HQ, 4th Floor, Anna Salai Commercial Hub, Chennai, Tamil Nadu 600002',
   listingFeeAmount: 10,
