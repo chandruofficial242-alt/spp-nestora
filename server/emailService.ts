@@ -7,6 +7,13 @@ try {
   dns.setDefaultResultOrder('ipv4first');
 } catch (_) {}
 
+// Custom DNS lookup that strictly enforces IPv4 (family 4)
+const ipv4Lookup = (hostname: string, _options: any, callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void) => {
+  dns.lookup(hostname, { family: 4, all: false }, (err, address, family) => {
+    callback(err, address, family);
+  });
+};
+
 interface EmailPayload {
   subject: string;
   text: string;
@@ -32,10 +39,10 @@ class EmailService {
 
     const explicitHost = process.env.SMTP_HOST || process.env.EMAIL_HOST;
     const isGmail = Boolean((explicitHost && explicitHost.includes('gmail')) || user.toLowerCase().endsWith('@gmail.com'));
-    const host = explicitHost || (isGmail ? 'smtp.gmail.com' : '');
+    const host = explicitHost || (isGmail ? 'smtp.gmail.com' : 'smtp.gmail.com');
 
     const portEnv = process.env.SMTP_PORT || process.env.EMAIL_PORT;
-    // Default to port 587 for cloud containers (Render/AWS/Heroku) where 465 SSL sockets are throttled
+    // Default to port 587 for cloud containers (Render/AWS) where STARTTLS on IPv4 is open
     const port = portEnv ? Number(portEnv) : 587;
 
     const secureEnv = process.env.SMTP_SECURE;
@@ -58,39 +65,26 @@ class EmailService {
     };
   }
 
-  private createTransporterInstance(host: string, port: number, secure: boolean, user: string, pass: string, forceCustom = false) {
-    if (!forceCustom && (user.toLowerCase().endsWith('@gmail.com') || host.includes('gmail'))) {
-      return nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user,
-          pass
-        },
-        tls: {
-          rejectUnauthorized: false
-        },
-        connectionTimeout: 15000,
-        greetingTimeout: 15000,
-        socketTimeout: 20000
-      } as any);
-    }
-
+  private createTransporterInstance(host: string, port: number, secure: boolean, user: string, pass: string) {
+    // Explicit SMTP configuration with IPv4 DNS resolution and STARTTLS
     return nodemailer.createTransport({
       host,
       port,
       secure,
       requireTLS: !secure,
-      family: 4, // Explicit IPv4 to prevent ENETUNREACH in Render/Linux containers
+      family: 4, // Strict IPv4 socket
+      lookup: ipv4Lookup, // Custom DNS resolver enforcing IPv4 A records
       auth: {
         user,
         pass
       },
       tls: {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
       },
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 20000
+      connectionTimeout: 20000,
+      greetingTimeout: 20000,
+      socketTimeout: 25000
     } as any);
   }
 
@@ -106,10 +100,10 @@ class EmailService {
 
     if (config.user && config.pass) {
       try {
-        const host = config.host || (config.isGmail ? 'smtp.gmail.com' : 'localhost');
+        const host = config.host || 'smtp.gmail.com';
         this.transporter = this.createTransporterInstance(host, config.port, config.secure, config.user, config.pass);
         this.isConfigured = true;
-        console.log(`[Email Service] SMTP Transport configured for ${config.isGmail ? 'Gmail Service' : host} (Port: ${config.port}, Secure: ${config.secure}, IPv4, Sender: ${config.user})`);
+        console.log(`[Email Service] SMTP Transport configured for ${host} (Port: ${config.port}, Secure: ${config.secure}, Strict IPv4 STARTTLS, Sender: ${config.user.slice(0, 3)}***@${config.user.split('@')[1] || ''})`);
         return true;
       } catch (err: any) {
         console.warn('[Email Service] Failed to initialize SMTP transport:', err.message || err);
@@ -140,14 +134,14 @@ class EmailService {
 
     try {
       await this.transporter.verify();
-      console.log('[Email Service] SMTP connection verified');
-      console.log('[Email Diagnostic] SMTP connection verified');
+      console.log('[Email Service] SMTP IPv4 connection verified');
+      console.log('[Email Diagnostic] SMTP IPv4 connection verified');
       return { verified: true };
     } catch (err: any) {
-      // If service: 'gmail' or primary transport fails, attempt direct port 587 / 465 fallback
+      // Direct fallback between 587 (STARTTLS) and 465 (SSL) strictly over IPv4
       const fallbackPort = config.port === 587 ? 465 : 587;
       const fallbackSecure = fallbackPort === 465;
-      console.log(`[Email Service] Primary SMTP check encountered issue: ${err.message}. Trying direct host fallback port ${fallbackPort}...`);
+      console.log(`[Email Service] Primary SMTP check on port ${config.port} encountered: ${err.message}. Retrying IPv4 fallback port ${fallbackPort}...`);
       
       try {
         const fallbackTransporter = this.createTransporterInstance(
@@ -155,13 +149,12 @@ class EmailService {
           fallbackPort,
           fallbackSecure,
           config.user,
-          config.pass,
-          true
+          config.pass
         );
         await fallbackTransporter.verify();
         this.transporter = fallbackTransporter;
-        console.log(`[Email Service] SMTP connection verified via fallback port ${fallbackPort}`);
-        console.log('[Email Diagnostic] SMTP connection verified');
+        console.log(`[Email Service] SMTP IPv4 connection verified via fallback port ${fallbackPort}`);
+        console.log('[Email Diagnostic] SMTP IPv4 connection verified');
         return { verified: true };
       } catch (fallbackErr: any) {
         const safeError = err.message || fallbackErr.message || 'SMTP verification failed';
@@ -329,7 +322,7 @@ Timestamp: ${new Date().toISOString()}
         this.transporter = fallbackTransporter;
       }
 
-      console.log('[Email Service] SMTP connection verified');
+      console.log('[Email Service] SMTP IPv4 connection verified');
       console.log('[Email Service] Email sent successfully');
       console.log(`[Email Service] Admin notification sent successfully to ${recipient}`);
       console.log('[Email Diagnostic] SMTP accepted message');
