@@ -49,9 +49,19 @@ export function sanitizeRedirectUri(raw: string | undefined, defaultUri: string)
 
 export function sanitizeClientId(raw: string | undefined): string {
   if (!raw || typeof raw !== 'string') return '';
-  const trimmed = raw.trim().replace(/^["']+|["']+$/g, '').trim();
+  let trimmed = raw.trim().replace(/^["']+|["']+$/g, '').trim();
   const match = trimmed.match(/[a-zA-Z0-9_\-\.]+\.apps\.googleusercontent\.com/i);
-  if (match) return match[0];
+  if (match) {
+    trimmed = match[0];
+  }
+
+  // Auto-repair missing hyphen between project number (144113380129) and client hash
+  if (trimmed.startsWith('144113380129') && !trimmed.startsWith('144113380129-')) {
+    trimmed = '144113380129-' + trimmed.substring(12);
+  } else if (/^\d{12}[a-zA-Z0-9]/.test(trimmed) && !trimmed.includes('-')) {
+    trimmed = trimmed.substring(0, 12) + '-' + trimmed.substring(12);
+  }
+
   return trimmed;
 }
 
@@ -79,11 +89,12 @@ class EmailService {
   }
 
   private getConfig() {
-    // Gmail API OAuth 2.0 credentials (sanitized from any accidental formatting or quotes)
-    const rawClientId = process.env.GMAIL_CLIENT_ID || '';
-    const rawClientSecret = process.env.GMAIL_CLIENT_SECRET || '';
-    const rawRefreshToken = process.env.GMAIL_REFRESH_TOKEN || this.runtimeRefreshToken || '';
-    const rawSenderEmail = process.env.GMAIL_SENDER_EMAIL || process.env.OFFICIAL_EMAIL || 'chandruking901@gmail.com';
+    // Gmail API OAuth 2.0 credentials (sanitized, supporting standard aliases)
+    const rawClientId = process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '';
+    const rawClientSecret = process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || '';
+    const rawRefreshToken = process.env.GMAIL_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN || this.runtimeRefreshToken || '';
+    const rawRedirectUri = process.env.GMAIL_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI || '';
+    const rawSenderEmail = process.env.GMAIL_SENDER_EMAIL || process.env.GOOGLE_SENDER_EMAIL || process.env.OFFICIAL_EMAIL || 'chandruking901@gmail.com';
 
     const gmailClientId = sanitizeClientId(rawClientId);
     const gmailClientSecret = rawClientSecret.trim().replace(/^["']+|["']+$/g, '').trim();
@@ -95,7 +106,7 @@ class EmailService {
     const defaultRedirectUri = isProduction
       ? 'https://spp-nestora.onrender.com/api/auth/google/callback'
       : `http://localhost:${fallbackPort}/api/auth/google/callback`;
-    const gmailRedirectUri = sanitizeRedirectUri(process.env.GMAIL_REDIRECT_URI, defaultRedirectUri);
+    const gmailRedirectUri = sanitizeRedirectUri(rawRedirectUri, defaultRedirectUri);
 
     const isGmailOAuthConfigured = Boolean(gmailClientId && gmailClientSecret);
     const isGmailApi = Boolean(gmailClientId && gmailClientSecret && gmailRefreshToken);

@@ -676,7 +676,8 @@ function getOAuthRedirectUri(req: express.Request): string {
         return `${protocol}://${host}/api/auth/google/callback`;
       })();
 
-  return sanitizeRedirectUri(process.env.GMAIL_REDIRECT_URI, defaultUri);
+  const rawRedirectUri = process.env.GMAIL_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI || '';
+  return sanitizeRedirectUri(rawRedirectUri, defaultUri);
 }
 
 /**
@@ -684,13 +685,13 @@ function getOAuthRedirectUri(req: express.Request): string {
  * Directs administrator to Google's consent screen for least-privilege Gmail send scope.
  */
 router.get('/auth/google', (req, res) => {
-  const rawClientId = process.env.GMAIL_CLIENT_ID || '';
-  const rawClientSecret = process.env.GMAIL_CLIENT_SECRET || '';
+  const rawClientId = process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '';
+  const rawClientSecret = process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || '';
   const clientId = sanitizeClientId(rawClientId);
   const clientSecret = rawClientSecret.trim().replace(/^["']+|["']+$/g, '').trim();
 
   if (!clientId || !clientSecret) {
-    console.warn(`[Google OAuth] Initiation failed: GMAIL_CLIENT_ID=${clientId ? 'configured' : 'MISSING'}, GMAIL_CLIENT_SECRET=${clientSecret ? 'configured' : 'MISSING'}`);
+    console.warn(`[Google OAuth] Initiation failed: Client ID=${clientId ? 'configured' : 'MISSING'}, Client Secret=${clientSecret ? 'configured' : 'MISSING'}`);
     return res.status(400).send(`
       <!DOCTYPE html>
       <html>
@@ -723,7 +724,7 @@ GMAIL_CLIENT_SECRET=your_google_client_secret</pre>
   const state = generateOAuthState();
 
   // Safe diagnostic log (never log secret or full sensitive credentials)
-  console.log(`[Google OAuth] Initiating authorization redirect: Client ID: ${clientId.substring(0, 12)}... | Redirect URI: ${redirectUri}`);
+  console.log(`[Google OAuth] Initiating authorization redirect: Client ID: ${clientId.substring(0, 14)}...${clientId.substring(clientId.indexOf('.apps'))} | Redirect URI: ${redirectUri}`);
 
   const authUrl = emailService.getGoogleAuthUrl(state, redirectUri);
   return res.redirect(authUrl);
@@ -943,6 +944,42 @@ router.get('/diagnostics/email/test', async (_req, res) => {
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Test email failed' });
   }
+});
+
+/**
+ * 10.4 Safe OAuth Diagnostics (Safe - Never leaks secrets or tokens)
+ */
+router.get('/diagnostics/oauth', (req, res) => {
+  const rawClientId = process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID || '';
+  const rawClientSecret = process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || '';
+  const rawRefreshToken = process.env.GMAIL_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN || '';
+  const clientId = sanitizeClientId(rawClientId);
+  const redirectUri = getOAuthRedirectUri(req);
+
+  const envVarFound = process.env.GMAIL_CLIENT_ID
+    ? 'GMAIL_CLIENT_ID'
+    : process.env.GOOGLE_CLIENT_ID
+    ? 'GOOGLE_CLIENT_ID'
+    : process.env.GOOGLE_OAUTH_CLIENT_ID
+    ? 'GOOGLE_OAUTH_CLIENT_ID'
+    : 'NONE';
+
+  const maskedClientId = clientId.length > 20
+    ? `${clientId.substring(0, 14)}...${clientId.substring(clientId.indexOf('.apps'))}`
+    : (clientId ? 'Present (short)' : 'MISSING');
+
+  return res.json({
+    configured: Boolean(clientId && rawClientSecret),
+    envVarSource: envVarFound,
+    clientIdMasked: maskedClientId,
+    clientIdHasHyphen: clientId.includes('-'),
+    clientIdLength: clientId.length,
+    redirectUri,
+    hasClientSecret: Boolean(rawClientSecret),
+    hasRefreshToken: Boolean(rawRefreshToken || emailService.getRuntimeRefreshToken()),
+    intendedRecipient: 'chandruking901@gmail.com',
+    scope: 'https://www.googleapis.com/auth/gmail.send'
+  });
 });
 
 
