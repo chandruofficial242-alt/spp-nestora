@@ -4,7 +4,7 @@ import { db } from './db.ts';
 import { authenticate, requireRole, generateAuthToken, type AuthenticatedRequest } from './auth.ts';
 import { sanitizePropertyForPublic, sanitizePropertiesListForPublic, sanitizeUser } from './sanitizer.ts';
 import { paymentGateway, verifyRazorpayWebhookSignature, handleWebhookPaymentReconciliation } from './paymentService.ts';
-import { emailService } from './emailService.ts';
+import { emailService, sanitizeRedirectUri, sanitizeClientId } from './emailService.ts';
 import { uploadMiddleware, processUploadedFile } from './uploadService.ts';
 import { createRateLimiter } from './rateLimiter.ts';
 import type { User, Property, PropertyStatus, EnquiryStatus, SiteVisitStatus, DealerStatus } from '../src/types/index.ts';
@@ -666,16 +666,17 @@ function verifyOAuthState(state: string): boolean {
 }
 
 function getOAuthRedirectUri(req: express.Request): string {
-  if (process.env.GMAIL_REDIRECT_URI) {
-    return process.env.GMAIL_REDIRECT_URI.trim();
-  }
-  if (process.env.NODE_ENV === 'production') {
-    return 'https://spp-nestora.onrender.com/api/auth/google/callback';
-  }
-  const host = req.get('host') || `localhost:${process.env.PORT || 5000}`;
-  const isHttps = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https';
-  const protocol = isHttps ? 'https' : 'http';
-  return `${protocol}://${host}/api/auth/google/callback`;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const defaultUri = isProduction
+    ? 'https://spp-nestora.onrender.com/api/auth/google/callback'
+    : (() => {
+        const host = req.get('host') || `localhost:${process.env.PORT || 5000}`;
+        const isHttps = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https';
+        const protocol = isHttps ? 'https' : 'http';
+        return `${protocol}://${host}/api/auth/google/callback`;
+      })();
+
+  return sanitizeRedirectUri(process.env.GMAIL_REDIRECT_URI, defaultUri);
 }
 
 /**
@@ -683,10 +684,13 @@ function getOAuthRedirectUri(req: express.Request): string {
  * Directs administrator to Google's consent screen for least-privilege Gmail send scope.
  */
 router.get('/auth/google', (req, res) => {
-  const clientId = (process.env.GMAIL_CLIENT_ID || '').trim();
-  const clientSecret = (process.env.GMAIL_CLIENT_SECRET || '').trim();
+  const rawClientId = process.env.GMAIL_CLIENT_ID || '';
+  const rawClientSecret = process.env.GMAIL_CLIENT_SECRET || '';
+  const clientId = sanitizeClientId(rawClientId);
+  const clientSecret = rawClientSecret.trim().replace(/^["']+|["']+$/g, '').trim();
 
   if (!clientId || !clientSecret) {
+    console.warn(`[Google OAuth] Initiation failed: GMAIL_CLIENT_ID=${clientId ? 'configured' : 'MISSING'}, GMAIL_CLIENT_SECRET=${clientSecret ? 'configured' : 'MISSING'}`);
     return res.status(400).send(`
       <!DOCTYPE html>
       <html>
@@ -717,6 +721,10 @@ GMAIL_CLIENT_SECRET=your_google_client_secret</pre>
 
   const redirectUri = getOAuthRedirectUri(req);
   const state = generateOAuthState();
+
+  // Safe diagnostic log (never log secret or full sensitive credentials)
+  console.log(`[Google OAuth] Initiating authorization redirect: Client ID: ${clientId.substring(0, 12)}... | Redirect URI: ${redirectUri}`);
+
   const authUrl = emailService.getGoogleAuthUrl(state, redirectUri);
   return res.redirect(authUrl);
 });
