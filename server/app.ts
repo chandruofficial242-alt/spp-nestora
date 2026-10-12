@@ -40,6 +40,13 @@ app.use('/uploads', express.static(uploadsPath));
 // 4. API Routes
 app.use('/api', router);
 
+// Aliases for Google OAuth callback if accessed without /api prefix
+app.get('/auth/google', (_req, res) => res.redirect('/api/auth/google'));
+app.get('/auth/google/callback', (req, res) => {
+  const query = new URLSearchParams(req.query as any).toString();
+  res.redirect(`/api/auth/google/callback${query ? `?${query}` : ''}`);
+});
+
 // 5. Serve static client build (dist/) in production with SPA fallback
 const distPath = path.resolve(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {
@@ -47,7 +54,13 @@ if (fs.existsSync(distPath)) {
 }
 
 app.use((req, res, next) => {
-  if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/uploads') && req.path !== '/health') {
+  if (
+    req.method === 'GET' &&
+    !req.path.startsWith('/api') &&
+    !req.path.startsWith('/uploads') &&
+    !req.path.startsWith('/auth') &&
+    req.path !== '/health'
+  ) {
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
       return res.sendFile(indexPath);

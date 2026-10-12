@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import express from 'express';
 import { db } from './db.ts';
 import { authenticate, requireRole, generateAuthToken, type AuthenticatedRequest } from './auth.ts';
@@ -640,9 +641,274 @@ router.patch('/settings', authenticate, requireRole(['admin']), (req, res) => {
 });
 
 // ==========================================
-// 10. EMAIL DIAGNOSTICS (SAFE - NO SECRETS)
+// 10. EMAIL DIAGNOSTICS & GMAIL API OAUTH 2.0 (SAFE - NO SECRETS IN LOGS)
 // ==========================================
 
+function generateOAuthState(): string {
+  const secret = process.env.SESSION_SECRET || 'spp_nestora_super_secure_jwt_secret_2026_prod';
+  const timestamp = Date.now().toString();
+  const random = crypto.randomBytes(16).toString('hex');
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}:${random}`).digest('hex');
+  return Buffer.from(JSON.stringify({ timestamp, random, sig: signature })).toString('base64url');
+}
+
+function verifyOAuthState(state: string): boolean {
+  try {
+    const secret = process.env.SESSION_SECRET || 'spp_nestora_super_secure_jwt_secret_2026_prod';
+    const decoded = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
+    const { timestamp, random, sig } = decoded;
+    if (Date.now() - Number(timestamp) > 15 * 60 * 1000) return false; // 15 min expiry
+    const expected = crypto.createHmac('sha256', secret).update(`${timestamp}:${random}`).digest('hex');
+    return sig === expected;
+  } catch {
+    return false;
+  }
+}
+
+function getOAuthRedirectUri(req: express.Request): string {
+  if (process.env.GMAIL_REDIRECT_URI) {
+    return process.env.GMAIL_REDIRECT_URI.trim();
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return 'https://spp-nestora.onrender.com/api/auth/google/callback';
+  }
+  const host = req.get('host') || `localhost:${process.env.PORT || 5000}`;
+  const isHttps = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https';
+  const protocol = isHttps ? 'https' : 'http';
+  return `${protocol}://${host}/api/auth/google/callback`;
+}
+
+/**
+ * 10.1 OAuth 2.0 Initiation Route
+ * Directs administrator to Google's consent screen for least-privilege Gmail send scope.
+ */
+router.get('/auth/google', (req, res) => {
+  const clientId = (process.env.GMAIL_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.GMAIL_CLIENT_SECRET || '').trim();
+
+  if (!clientId || !clientSecret) {
+    return res.status(400).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SPP Nestora — Gmail OAuth Setup Incomplete</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px 20px; line-height: 1.6; }
+          .container { max-width: 600px; margin: 0 auto; background: #1e293b; padding: 32px; border-radius: 12px; border: 1px solid #334155; }
+          h1 { color: #f87171; font-size: 22px; margin-top: 0; }
+          code { background: #0f172a; color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+          pre { background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+          .btn { display: inline-block; background: #10b981; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; margin-top: 16px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>⚠️ Gmail OAuth Credentials Required</h1>
+          <p>Before initiating Google Authorization, please configure your Google Cloud OAuth Client credentials in your environment variables:</p>
+          <pre>GMAIL_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+GMAIL_CLIENT_SECRET=your_google_client_secret</pre>
+          <p>Once set in Render (or your local <code>.env</code>), reload and visit this URL again.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+
+  const redirectUri = getOAuthRedirectUri(req);
+  const state = generateOAuthState();
+  const authUrl = emailService.getGoogleAuthUrl(state, redirectUri);
+  return res.redirect(authUrl);
+});
+
+/**
+ * 10.2 OAuth 2.0 Callback Route
+ * Receives code from Google, exchanges it for refresh_token, and displays secure instructions for administrator.
+ */
+router.get('/auth/google/callback', async (req, res) => {
+  const { code, state, error, error_description } = req.query as Record<string, string | undefined>;
+
+  if (error) {
+    return res.status(400).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SPP Nestora — Google Authorization Failed</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px 20px; line-height: 1.6; }
+          .container { max-width: 600px; margin: 0 auto; background: #1e293b; padding: 32px; border-radius: 12px; border: 1px solid #ef4444; }
+          h1 { color: #f87171; font-size: 22px; margin-top: 0; }
+          .btn { display: inline-block; background: #3b82f6; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; margin-top: 16px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>❌ Authorization Denied</h1>
+          <p>Google returned an authorization error: <strong>${error}</strong></p>
+          <p>${error_description || 'The user cancelled or authorization was denied.'}</p>
+          <a href="/api/auth/google" class="btn">Try Again</a>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+
+  if (!code || !state) {
+    return res.status(400).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SPP Nestora — Invalid OAuth Callback</title>
+        <style>body { font-family: sans-serif; padding: 40px; background: #0f172a; color: #fff; }</style>
+      </head>
+      <body>
+        <h2>Invalid Request</h2>
+        <p>Missing authorization code or state parameter.</p>
+        <a href="/api/auth/google" style="color: #38bdf8;">Restart Authorization</a>
+      </body>
+      </html>
+    `);
+  }
+
+  if (!verifyOAuthState(state)) {
+    return res.status(400).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SPP Nestora — Security State Verification Failed</title>
+        <style>body { font-family: sans-serif; padding: 40px; background: #0f172a; color: #fff; }</style>
+      </head>
+      <body>
+        <h2>Security State Verification Failed</h2>
+        <p>The state parameter is invalid or has expired (15-minute window). Please restart the authorization.</p>
+        <a href="/api/auth/google" style="color: #38bdf8;">Restart Authorization</a>
+      </body>
+      </html>
+    `);
+  }
+
+  const redirectUri = getOAuthRedirectUri(req);
+  const result = await emailService.exchangeCodeForTokens(code, redirectUri);
+
+  if (!result.success) {
+    return res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SPP Nestora — Token Exchange Failed</title>
+        <style>body { font-family: sans-serif; padding: 40px; background: #0f172a; color: #fff; }</style>
+      </head>
+      <body>
+        <h2>Token Exchange Failed</h2>
+        <p>Failed to exchange code with Google: <strong>${result.error}</strong></p>
+        <a href="/api/auth/google" style="color: #38bdf8;">Try Again</a>
+      </body>
+      </html>
+    `);
+  }
+
+  const refreshToken = result.refreshToken;
+
+  if (!refreshToken) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SPP Nestora — Refresh Token Missing</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px 20px; line-height: 1.6; }
+          .container { max-width: 620px; margin: 0 auto; background: #1e293b; padding: 32px; border-radius: 12px; border: 1px solid #f59e0b; }
+          h1 { color: #fbbf24; font-size: 22px; margin-top: 0; }
+          .btn { display: inline-block; background: #10b981; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; margin-top: 16px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>⚠️ No Refresh Token Returned</h1>
+          <p>Google approved the authorization, but did not return a new refresh token because consent was previously recorded without requesting a new token.</p>
+          <p>Please click the button below to re-authorize with forced consent so Google generates a brand-new refresh token:</p>
+          <a href="/api/auth/google" class="btn">Force Re-authorization</a>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+
+  return res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>SPP Nestora — Gmail OAuth 2.0 Authorization Success</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #0b1512; color: #f8fafc; padding: 40px 20px; line-height: 1.6; }
+        .container { max-width: 680px; margin: 0 auto; background: #11221b; padding: 36px; border-radius: 16px; border: 1px solid #10b981; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .badge { display: inline-block; background: #064e3b; color: #34d399; padding: 4px 12px; border-radius: 9999px; font-weight: 700; font-size: 13px; margin-bottom: 12px; }
+        h1 { color: #ffffff; font-size: 24px; margin: 0 0 8px 0; }
+        p { color: #cbd5e1; font-size: 15px; margin: 8px 0; }
+        .token-box { background: #061510; border: 1px solid #047857; border-radius: 8px; padding: 16px; margin: 20px 0; position: relative; }
+        .token-label { font-size: 12px; color: #6ee7b7; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; margin-bottom: 8px; }
+        .token-val { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: #a7f3d0; background: transparent; user-select: all; }
+        .btn-row { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+        .btn { display: inline-block; background: #059669; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; border: none; cursor: pointer; transition: background 0.2s; }
+        .btn:hover { background: #10b981; }
+        .btn-secondary { background: #1e293b; color: #94a3b8; }
+        .btn-secondary:hover { background: #334155; color: #ffffff; }
+        .steps { background: #0d1e17; padding: 20px; border-radius: 8px; border: 1px solid #1e3a2f; margin-top: 24px; }
+        .steps ol { margin: 0; padding-left: 20px; color: #cbd5e1; font-size: 14px; }
+        .steps li { margin: 8px 0; }
+        code { background: #061510; color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="badge">OAUTH 2.0 VERIFIED</div>
+        <h1>Google Authorization Successful</h1>
+        <p>SPP Nestora is now authorized to send admin notifications to <strong>chandruking901@gmail.com</strong> via the Gmail REST API (least-privilege <code>gmail.send</code> scope).</p>
+        
+        <div class="token-box">
+          <div class="token-label">Your Gmail Refresh Token:</div>
+          <div id="refreshToken" class="token-val">${refreshToken}</div>
+        </div>
+
+        <button class="btn" onclick="copyToken()">📋 Copy Refresh Token</button>
+
+        <div class="steps">
+          <strong style="color: #6ee7b7; display: block; margin-bottom: 8px;">Persistent Production Setup (Render Dashboard):</strong>
+          <ol>
+            <li>Go to your Render Dashboard &rarr; SPP Nestora Web Service &rarr; <strong>Environment</strong>.</li>
+            <li>Add or update the variable: <code>GMAIL_REFRESH_TOKEN</code> with the copied value.</li>
+            <li>Ensure <code>GMAIL_CLIENT_ID</code>, <code>GMAIL_CLIENT_SECRET</code>, and <code>GMAIL_SENDER_EMAIL=chandruking901@gmail.com</code> are also saved.</li>
+            <li>Click <strong>Save Changes</strong>.</li>
+          </ol>
+        </div>
+
+        <div class="btn-row">
+          <a href="/api/diagnostics/email/test" target="_blank" class="btn">🚀 Test Send Admin Email Now</a>
+          <a href="/api/diagnostics/email" target="_blank" class="btn btn-secondary">🔍 Check Diagnostic Status</a>
+        </div>
+      </div>
+
+      <script>
+        function copyToken() {
+          const text = document.getElementById('refreshToken').innerText.trim();
+          navigator.clipboard.writeText(text).then(() => {
+            alert('Refresh token copied to clipboard! Paste it into GMAIL_REFRESH_TOKEN on Render.');
+          }).catch(() => {
+            alert('Please select and copy the text manually.');
+          });
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+/**
+ * 10.3 Email Diagnostics (Safe - No Secrets)
+ */
 router.get('/diagnostics/email', async (_req, res) => {
   try {
     const status = await emailService.getDiagnosticStatus();
@@ -653,6 +919,16 @@ router.get('/diagnostics/email', async (_req, res) => {
 });
 
 router.post('/diagnostics/email/test', async (_req, res) => {
+  try {
+    const result = await emailService.sendTestEmail();
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Test email failed' });
+  }
+});
+
+// Also allow GET on test endpoint for convenient browser testing
+router.get('/diagnostics/email/test', async (_req, res) => {
   try {
     const result = await emailService.sendTestEmail();
     return res.json(result);

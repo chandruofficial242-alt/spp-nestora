@@ -38,12 +38,42 @@ class EmailService {
   private transporter: any = null;
   private isConfigured = false;
   private lastCheckedConfig: string = '';
+  private runtimeRefreshToken: string = '';
+  private cachedAccessToken: string | null = null;
+  private tokenExpiresAt: number = 0;
 
   constructor() {
     this.initTransport();
   }
 
+  public setRuntimeRefreshToken(token: string) {
+    this.runtimeRefreshToken = (token || '').trim();
+    this.cachedAccessToken = null;
+    this.tokenExpiresAt = 0;
+    this.isConfigured = true;
+  }
+
+  public getRuntimeRefreshToken(): string {
+    return this.runtimeRefreshToken;
+  }
+
   private getConfig() {
+    // Gmail API OAuth 2.0 credentials
+    const gmailClientId = (process.env.GMAIL_CLIENT_ID || '').trim();
+    const gmailClientSecret = (process.env.GMAIL_CLIENT_SECRET || '').trim();
+    const gmailRefreshToken = (process.env.GMAIL_REFRESH_TOKEN || this.runtimeRefreshToken || '').trim();
+    const gmailSenderEmail = (process.env.GMAIL_SENDER_EMAIL || process.env.OFFICIAL_EMAIL || 'chandruking901@gmail.com').trim();
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    const fallbackPort = process.env.PORT || '5000';
+    const defaultRedirectUri = isProduction
+      ? 'https://spp-nestora.onrender.com/api/auth/google/callback'
+      : `http://localhost:${fallbackPort}/api/auth/google/callback`;
+    const gmailRedirectUri = (process.env.GMAIL_REDIRECT_URI || defaultRedirectUri).trim();
+
+    const isGmailOAuthConfigured = Boolean(gmailClientId && gmailClientSecret);
+    const isGmailApi = Boolean(gmailClientId && gmailClientSecret && gmailRefreshToken);
+
     const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
     const resendFrom = (process.env.RESEND_FROM || process.env.EMAIL_FROM || 'SPP Nestora <onboarding@resend.dev>').trim();
 
@@ -70,6 +100,13 @@ class EmailService {
     const officialPhone = process.env.OFFICIAL_PHONE || '9715673055';
 
     return {
+      isGmailApi,
+      isGmailOAuthConfigured,
+      gmailClientId,
+      gmailClientSecret,
+      gmailRefreshToken,
+      gmailSenderEmail,
+      gmailRedirectUri,
       isResend,
       resendApiKey,
       resendFrom,
@@ -83,6 +120,211 @@ class EmailService {
       appName,
       officialPhone
     };
+  }
+
+  public getGoogleAuthUrl(state: string, redirectUriOverride?: string): string {
+    const config = this.getConfig();
+    const redirectUri = redirectUriOverride || config.gmailRedirectUri;
+    const params = new URLSearchParams({
+      client_id: config.gmailClientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/gmail.send',
+      access_type: 'offline',
+      prompt: 'consent',
+      state
+    });
+    return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  }
+
+  public async exchangeCodeForTokens(code: string, redirectUriOverride?: string): Promise<{
+    success: boolean;
+    refreshToken?: string;
+    accessToken?: string;
+    error?: string;
+  }> {
+    const config = this.getConfig();
+    const redirectUri = redirectUriOverride || config.gmailRedirectUri;
+
+    try {
+      const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+          code,
+          client_id: config.gmailClientId,
+          client_secret: config.gmailClientSecret,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code'
+        }).toString()
+      });
+
+      const data: any = await response.json();
+      if (!response.ok) {
+        const errorMsg = data.error_description || data.error || `HTTP ${response.status}`;
+        console.warn('[Email Service] Google OAuth code exchange failed:', errorMsg);
+        return { success: false, error: errorMsg };
+      }
+
+      if (data.refresh_token) {
+        this.setRuntimeRefreshToken(data.refresh_token);
+      }
+      if (data.access_token) {
+        this.cachedAccessToken = data.access_token;
+        this.tokenExpiresAt = Date.now() + Math.max(60, (data.expires_in || 3600) - 300) * 1000;
+      }
+
+      return {
+        success: true,
+        refreshToken: data.refresh_token,
+        accessToken: data.access_token
+      };
+    } catch (err: any) {
+      const errorMsg = err.message || 'Token exchange failed';
+      console.warn('[Email Service] Google OAuth token exchange network error:', errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  }
+
+  public async getFreshAccessToken(): Promise<{ accessToken: string | null; error?: string }> {
+    const config = this.getConfig();
+    if (!config.gmailClientId || !config.gmailClientSecret || !config.gmailRefreshToken) {
+      return { accessToken: null, error: 'Gmail API credentials or refresh token missing' };
+    }
+
+    if (this.cachedAccessToken && Date.now() < this.tokenExpiresAt) {
+      return { accessToken: this.cachedAccessToken };
+    }
+
+    try {
+      const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+          client_id: config.gmailClientId,
+          client_secret: config.gmailClientSecret,
+          refresh_token: config.gmailRefreshToken,
+          grant_type: 'refresh_token'
+        }).toString()
+      });
+
+      const data: any = await response.json();
+      if (!response.ok) {
+        const errorMsg = data.error_description || data.error || `HTTP ${response.status}`;
+        console.warn('[Email Service] Google OAuth refresh token exchange failed:', errorMsg);
+        return { accessToken: null, error: errorMsg };
+      }
+
+      const accessToken = data.access_token;
+      this.cachedAccessToken = accessToken;
+      this.tokenExpiresAt = Date.now() + Math.max(60, (data.expires_in || 3600) - 300) * 1000;
+      return { accessToken };
+    } catch (err: any) {
+      const errorMsg = err.message || 'Failed to refresh access token';
+      console.warn('[Email Service] Access token refresh error:', errorMsg);
+      return { accessToken: null, error: errorMsg };
+    }
+  }
+
+  private createRfc2822Message(from: string, to: string, subject: string, text: string, html?: string): string {
+    const boundary = `spp_boundary_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+
+    const lines: string[] = [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${utf8Subject}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      text,
+      ''
+    ];
+
+    if (html) {
+      lines.push(
+        `--${boundary}`,
+        'Content-Type: text/html; charset="UTF-8"',
+        'Content-Transfer-Encoding: 7bit',
+        '',
+        html,
+        ''
+      );
+    }
+
+    lines.push(`--${boundary}--`);
+    return lines.join('\r\n');
+  }
+
+  public async sendViaGmailApi(payload: EmailPayload): Promise<{
+    success: boolean;
+    delivered: boolean;
+    messageId?: string;
+    error?: string;
+    errorCode?: string;
+  }> {
+    const config = this.getConfig();
+    const tokenResult = await this.getFreshAccessToken();
+    if (!tokenResult.accessToken) {
+      return {
+        success: false,
+        delivered: false,
+        error: tokenResult.error || 'Could not acquire Gmail API access token',
+        errorCode: 'GMAIL_AUTH_FAILED'
+      };
+    }
+
+    try {
+      const from = `"${config.appName}" <${config.gmailSenderEmail}>`;
+      const to = config.adminEmail;
+      const rawMessage = this.createRfc2822Message(from, to, payload.subject, payload.text, payload.html);
+      const base64urlRaw = Buffer.from(rawMessage).toString('base64url');
+
+      const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${tokenResult.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ raw: base64urlRaw })
+      });
+
+      const data: any = await response.json();
+      if (!response.ok) {
+        const errorMsg = data.error?.message || `Gmail API send failed with status ${response.status}`;
+        console.warn('[Email Service] Gmail API send error:', errorMsg);
+        return {
+          success: false,
+          delivered: false,
+          error: errorMsg,
+          errorCode: data.error?.status || 'GMAIL_SEND_ERROR'
+        };
+      }
+
+      console.log(`[Email Service] Gmail API email sent successfully. Message ID: ${data.id}`);
+      return {
+        success: true,
+        delivered: true,
+        messageId: data.id
+      };
+    } catch (err: any) {
+      const errorMsg = err.message || 'Gmail API network request failed';
+      console.warn('[Email Service] Gmail API exception:', errorMsg);
+      return {
+        success: false,
+        delivered: false,
+        error: errorMsg,
+        errorCode: 'GMAIL_NETWORK_ERROR'
+      };
+    }
   }
 
   private async createTransporterInstance(host: string, port: number, secure: boolean, user: string, pass: string) {
@@ -112,6 +354,11 @@ class EmailService {
 
   public async initTransport(): Promise<boolean> {
     const config = this.getConfig();
+
+    if (config.isGmailApi) {
+      this.isConfigured = true;
+      return true;
+    }
 
     if (config.isResend) {
       this.isConfigured = true;
@@ -149,7 +396,26 @@ class EmailService {
   public async verifyConnection(): Promise<{ verified: boolean; error?: string; errorCode?: string }> {
     const config = this.getConfig();
 
-    // 1. Resend API Verification
+    // 1. Gmail API OAuth 2.0 Verification (Priority)
+    if (config.isGmailApi) {
+      try {
+        const tokenRes = await this.getFreshAccessToken();
+        if (tokenRes.accessToken) {
+          console.log('[Email Service] Gmail API OAuth 2.0 connection verified successfully');
+          console.log('[Email Diagnostic] Gmail API OAuth 2.0 connection verified');
+          return { verified: true };
+        } else {
+          console.warn('[Email Service] Gmail API verification failed:', tokenRes.error);
+          return { verified: false, error: tokenRes.error, errorCode: 'GMAIL_AUTH_ERROR' };
+        }
+      } catch (e: any) {
+        const safeError = e.message || 'Network error connecting to Google OAuth2';
+        console.warn('[Email Service] Gmail API connection check error:', safeError);
+        return { verified: false, error: safeError, errorCode: 'GMAIL_NETWORK_ERROR' };
+      }
+    }
+
+    // 2. Resend API Verification
     if (config.isResend) {
       try {
         const res = await fetch('https://api.resend.com/api-keys', {
@@ -174,9 +440,9 @@ class EmailService {
       }
     }
 
-    // 2. SMTP Verification Fallback
+    // 3. SMTP Verification Fallback
     if (!config.user || !config.pass) {
-      console.log('[Email Service] Email service credentials not configured in environment (RESEND_API_KEY / SMTP missing). Notification logged safely.');
+      console.log('[Email Service] Email service credentials not configured in environment (GMAIL_REFRESH_TOKEN / RESEND_API_KEY / SMTP missing). Safe logging active.');
       return { verified: false, error: 'Email service credentials not provided in environment', errorCode: 'NO_CREDENTIALS' };
     }
 
@@ -196,7 +462,7 @@ class EmailService {
       const fallbackPort = config.port === 587 ? 465 : 587;
       const fallbackSecure = fallbackPort === 465;
       console.log(`[Email Service] Primary SMTP check on port ${config.port} encountered: ${err.message}. Retrying IPv4 fallback port ${fallbackPort}...`);
-      
+
       try {
         const fallbackTransporter = await this.createTransporterInstance(
           config.host || 'smtp.gmail.com',
@@ -233,8 +499,49 @@ class EmailService {
     verified: boolean;
     verifyError?: string;
     verifyErrorCode?: string;
+    oauthConfigured?: boolean;
+    hasRefreshToken?: boolean;
   }> {
     const config = this.getConfig();
+
+    // 1. Gmail API status
+    if (config.isGmailApi) {
+      const check = await this.verifyConnection();
+      return {
+        configured: true,
+        provider: 'Gmail API (OAuth 2.0 REST https://gmail.googleapis.com:443)',
+        host: 'gmail.googleapis.com',
+        port: 443,
+        secure: true,
+        senderEmail: config.gmailSenderEmail,
+        recipientEmail: config.adminEmail,
+        hasPassword: true,
+        verified: check.verified,
+        verifyError: check.error,
+        verifyErrorCode: check.errorCode,
+        oauthConfigured: true,
+        hasRefreshToken: true
+      };
+    }
+
+    // Gmail API configured for OAuth but awaiting refresh token
+    if (config.isGmailOAuthConfigured && !config.gmailRefreshToken) {
+      return {
+        configured: false,
+        provider: 'Gmail API (OAuth 2.0 Client Configured — Awaiting Authorization)',
+        host: 'gmail.googleapis.com',
+        port: 443,
+        secure: true,
+        senderEmail: config.gmailSenderEmail,
+        recipientEmail: config.adminEmail,
+        hasPassword: false,
+        verified: false,
+        verifyError: 'OAuth client ID/secret set, but GMAIL_REFRESH_TOKEN not yet authorized. Visit /api/auth/google to authorize.',
+        verifyErrorCode: 'AWAITING_OAUTH_CONSENT',
+        oauthConfigured: true,
+        hasRefreshToken: false
+      };
+    }
 
     if (config.isResend) {
       const check = await this.verifyConnection();
@@ -293,12 +600,20 @@ class EmailService {
 
     console.log('[Email Diagnostic] Starting LIVE email test');
 
+    const providerLabel = config.isGmailApi
+      ? 'Gmail API (OAuth 2.0 REST)'
+      : config.isResend
+      ? 'Resend API'
+      : config.user
+      ? 'SMTP'
+      : 'Simulation';
+
     const payload: EmailPayload = {
-      subject: `SPP Nestora – Production Resend Email Test (${new Date().toLocaleTimeString('en-IN')})`,
-      text: `SPP Nestora – Production Resend Email Test
+      subject: `SPP Nestora – ${providerLabel} Email Verification Test (${new Date().toLocaleTimeString('en-IN')})`,
+      text: `SPP Nestora – Production Email Verification Test
 
 This is an automated verification email from SPP Nestora Production API Server.
-If you are seeing this message, your Resend API production email integration is operating successfully!
+If you are seeing this message, your ${providerLabel} email integration is operating successfully!
 
 Timestamp:
 ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (IST)
@@ -306,19 +621,23 @@ ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (IST)
 Recipient:
 ${recipient}
 
+Provider:
+${providerLabel}
+
 Status:
-SUCCESS - Live Resend API Delivery Verified
+SUCCESS - Live Delivery Verified
 `,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; border: 1px solid #10b981; border-radius: 12px; overflow: hidden; background: #ffffff;">
           <div style="background: #0f3a22; color: #ffffff; padding: 20px; text-align: center;">
             <h2 style="margin: 0; font-size: 20px;">SPP Nestora Email Test</h2>
-            <p style="margin: 4px 0 0 0; font-size: 12px; color: #a7f3d0;">Live Resend Email Integration Verification</p>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #a7f3d0;">Live ${providerLabel} Integration Verification</p>
           </div>
           <div style="padding: 24px; color: #1e293b; font-size: 14px; line-height: 1.6;">
-            <p style="margin-top: 0;">This email confirms that the official <strong>SPP Nestora</strong> email notification system is functioning properly on Render production via Resend.</p>
+            <p style="margin-top: 0;">This email confirms that the official <strong>SPP Nestora</strong> email notification system is functioning properly via <strong>${providerLabel}</strong>.</p>
             <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
-              <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Destination:</td><td style="padding: 8px 0; font-weight: bold; color: #0f3a22;">${recipient}</td></tr>
+              <tr><td style="padding: 8px 0; color: #64748b; width: 140px;">Provider:</td><td style="padding: 8px 0; font-weight: bold; color: #0f3a22;">${providerLabel}</td></tr>
+              <tr><td style="padding: 8px 0; color: #64748b;">Destination:</td><td style="padding: 8px 0; font-weight: bold; color: #0f3a22;">${recipient}</td></tr>
               <tr><td style="padding: 8px 0; color: #64748b;">Delivered At:</td><td style="padding: 8px 0;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (IST)</td></tr>
               <tr><td style="padding: 8px 0; color: #64748b;">Status:</td><td style="padding: 8px 0;"><span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">ACTIVE & VERIFIED</span></td></tr>
             </table>
@@ -350,7 +669,20 @@ Subject: ${payload.subject}
 Timestamp: ${new Date().toISOString()}
 `);
 
-    // 1. Resend Dispatch
+    // 1. Gmail API OAuth 2.0 Dispatch (Top Priority)
+    if (config.isGmailApi) {
+      console.log(`[Email Service] Dispatching via Gmail API (from: ${config.gmailSenderEmail} to: ${recipient})...`);
+      const result = await this.sendViaGmailApi(payload);
+      if (result.success) {
+        console.log(`[Email Diagnostic] Gmail API accepted message. Message ID: ${result.messageId}`);
+        console.log('[Email Diagnostic] LIVE EMAIL TEST SUCCESS');
+        return result;
+      }
+      console.warn('[Email Diagnostic] Gmail API delivery failed:', result.error);
+      return result;
+    }
+
+    // 2. Resend Dispatch
     if (config.isResend) {
       try {
         console.log(`[Email Service] Dispatching via Resend API (from: ${config.resendFrom})...`);
@@ -408,7 +740,7 @@ Timestamp: ${new Date().toISOString()}
       }
     }
 
-    // 2. Fallback SMTP Dispatch
+    // 3. Fallback SMTP Dispatch
     await this.initTransport();
 
     if (!this.isConfigured || !this.transporter) {
