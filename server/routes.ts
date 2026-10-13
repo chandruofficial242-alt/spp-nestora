@@ -329,6 +329,19 @@ router.delete('/properties/:id', authenticate, (req: AuthenticatedRequest, res) 
 // 5. ₹10 LISTING FEE PAYMENTS
 // ==========================================
 
+router.get('/payments/methods', async (_req, res) => {
+  try {
+    const methods = await paymentGateway.getPaymentMethods();
+    return res.json({
+      success: true,
+      isSandbox: paymentGateway.isSandbox,
+      methods
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to retrieve payment methods' });
+  }
+});
+
 router.post('/payments/create-order', paymentLimiter, authenticate, requireRole(['dealer', 'admin']), async (req: AuthenticatedRequest, res) => {
   try {
     const { propertyId, propertyTitle, method } = req.body;

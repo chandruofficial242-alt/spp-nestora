@@ -2,6 +2,16 @@ import crypto from 'crypto';
 import { db } from './db.ts';
 import type { Payment } from '../src/types/index.ts';
 
+export interface PaymentMethodsStatus {
+  upi: boolean;
+  upiIntent: boolean;
+  upiQr: boolean;
+  card: boolean;
+  netbanking: boolean;
+  wallet: boolean;
+  rawDetails?: any;
+}
+
 export interface PaymentOrderRequest {
   dealerId: string;
   dealerName: string;
@@ -18,6 +28,7 @@ export interface PaymentOrderResult {
   keyId?: string;
   isSandbox: boolean;
   status: 'created';
+  methods?: PaymentMethodsStatus;
 }
 
 export interface PaymentVerificationRequest {
@@ -35,6 +46,7 @@ export interface IPaymentGateway {
   readonly isSandbox: boolean;
   createOrder(req: PaymentOrderRequest): Promise<PaymentOrderResult>;
   verifyPayment(req: PaymentVerificationRequest): Promise<{ success: boolean; paymentRecord: Payment }>;
+  getPaymentMethods(): Promise<PaymentMethodsStatus>;
 }
 
 /**
@@ -50,6 +62,39 @@ export class RazorpayPaymentGateway implements IPaymentGateway {
     this.keyId = keyId;
     this.keySecret = keySecret;
     this.isSandbox = keyId.startsWith('rzp_test_');
+  }
+
+  async getPaymentMethods(): Promise<PaymentMethodsStatus> {
+    try {
+      const authHeader = 'Basic ' + Buffer.from(`${this.keyId}:`).toString('base64');
+      const response = await fetch('https://api.razorpay.com/v1/methods', {
+        method: 'GET',
+        headers: {
+          'Authorization': authHeader
+        }
+      });
+      if (response.ok) {
+        const data: any = await response.json();
+        return {
+          upi: Boolean(data.upi),
+          upiIntent: Boolean(data.upi_intent),
+          upiQr: Boolean(data.upi || data.upi_intent),
+          card: Boolean(data.card),
+          netbanking: Boolean(data.netbanking && Object.keys(data.netbanking).length > 0),
+          wallet: Boolean(data.wallet && Object.keys(data.wallet).length > 0)
+        };
+      }
+    } catch (err: any) {
+      console.warn('[Razorpay] Methods API inspection notice:', err?.message || err);
+    }
+    return {
+      upi: true,
+      upiIntent: true,
+      upiQr: true,
+      card: true,
+      netbanking: true,
+      wallet: true
+    };
   }
 
   async createOrder(req: PaymentOrderRequest): Promise<PaymentOrderResult> {
@@ -96,13 +141,19 @@ export class RazorpayPaymentGateway implements IPaymentGateway {
 
       const orderData: any = await response.json();
 
+      let methods: PaymentMethodsStatus | undefined;
+      try {
+        methods = await this.getPaymentMethods();
+      } catch (_) {}
+
       return {
         orderId: orderData.id,
         amount: serverVerifiedAmount,
         currency: 'INR',
         keyId: this.keyId,
         isSandbox: this.isSandbox,
-        status: 'created'
+        status: 'created',
+        methods
       };
     } catch (err: any) {
       console.error('[Razorpay] Network/API exception:', err.message);
@@ -125,10 +176,9 @@ export class RazorpayPaymentGateway implements IPaymentGateway {
       .update(`${req.orderId}|${req.paymentId}`)
       .digest('hex');
 
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'utf8'),
-      Buffer.from(req.signature, 'utf8')
-    );
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const signatureBuf = Buffer.from(req.signature, 'utf8');
+    const isValid = expectedBuf.length === signatureBuf.length && crypto.timingSafeEqual(expectedBuf, signatureBuf);
 
     if (!isValid) {
       console.warn(`[Razorpay Security Alert] Invalid signature for Order ${req.orderId} / Payment ${req.paymentId}`);
@@ -170,6 +220,17 @@ export class RazorpayPaymentGateway implements IPaymentGateway {
 export class SandboxPaymentGateway implements IPaymentGateway {
   public readonly isSandbox = true;
 
+  async getPaymentMethods(): Promise<PaymentMethodsStatus> {
+    return {
+      upi: true,
+      upiIntent: true,
+      upiQr: true,
+      card: true,
+      netbanking: true,
+      wallet: true
+    };
+  }
+
   async createOrder(req: PaymentOrderRequest): Promise<PaymentOrderResult> {
     const settings = db.getSettings();
     const serverVerifiedAmount = settings.listingFeeAmount || 10;
@@ -187,7 +248,15 @@ export class SandboxPaymentGateway implements IPaymentGateway {
       currency: 'INR',
       keyId: 'rzp_test_spp_nestora_sandbox',
       isSandbox: true,
-      status: 'created'
+      status: 'created',
+      methods: {
+        upi: true,
+        upiIntent: true,
+        upiQr: true,
+        card: true,
+        netbanking: true,
+        wallet: true
+      }
     };
   }
 

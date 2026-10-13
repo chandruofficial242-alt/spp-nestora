@@ -7,7 +7,6 @@ import { apiService } from '../../services/api';
 import { 
   Building2, 
   MapPin, 
-  Image as ImageIcon, 
   CheckCircle2, 
   ArrowRight, 
   ArrowLeft, 
@@ -18,7 +17,8 @@ import {
   ShieldCheck, 
   QrCode,
   Loader2,
-  FileCheck
+  FileCheck,
+  AlertTriangle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -81,6 +81,17 @@ export const AddPropertyWizard: React.FC = () => {
 
   // Payment Options
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
+  const [gatewayMethods, setGatewayMethods] = useState<{ upi: boolean; upiQr: boolean; card: boolean; netbanking: boolean; wallet: boolean } | null>(null);
+
+  React.useEffect(() => {
+    if (currentStep === 6) {
+      apiService.getPaymentMethods().then(res => {
+        if (res && res.methods) {
+          setGatewayMethods(res.methods);
+        }
+      }).catch(() => {});
+    }
+  }, [currentStep]);
 
 
   // Helpers
@@ -257,17 +268,68 @@ export const AddPropertyWizard: React.FC = () => {
       // 2. Check if real Razorpay key is present
       const isRealRazorpay = order.keyId && order.keyId.startsWith('rzp_') && !order.keyId.includes('placeholder');
 
+      if (order.methods) {
+        setGatewayMethods(order.methods);
+      }
+
       if (isRealRazorpay) {
         const scriptLoaded = await loadRazorpayScript();
         if (scriptLoaded && (window as any).Razorpay) {
-          const options = {
+          // Documented Razorpay Display Configuration
+          // Sequences UPI & Dynamic QR code at the top when UPI is selected,
+          // while preserving Cards, Netbanking, and Wallets in full.
+          const displayConfig = {
+            blocks: {
+              upi: {
+                name: 'Pay using UPI / QR Code',
+                instruments: [
+                  {
+                    method: 'upi',
+                    flows: ['qr', 'intent', 'collect']
+                  }
+                ]
+              },
+              other: {
+                name: 'Cards, Netbanking & Wallets',
+                instruments: [
+                  { method: 'card' },
+                  { method: 'netbanking' },
+                  { method: 'wallet' }
+                ]
+              }
+            },
+            sequence: paymentMethod === 'upi'
+              ? ['block.upi', 'block.other']
+              : ['block.other', 'block.upi'],
+            preferences: {
+              show_default_blocks: true
+            }
+          };
+
+          const options: any = {
             key: order.keyId,
             amount: Math.round(order.amount * 100),
             currency: order.currency || 'INR',
             name: 'SPP Nestora',
             description: `₹${order.amount} Property Listing Fee`,
             order_id: order.orderId,
+            prefill: {
+              name: currentUser?.businessName || currentUser?.name || 'Authorized Dealer',
+              email: currentUser?.email || 'dealer@sppnestora.com',
+              contact: currentUser?.phone || '9715673055',
+              ...(paymentMethod === 'upi' ? { method: 'upi' } : {})
+            },
+            // Configure display blocks at both locations for complete Razorpay SDK compatibility
+            config: {
+              display: displayConfig
+            },
+            display: displayConfig,
+            theme: { color: '#0f3a22' },
             modal: {
+              backdropclose: false,
+              escape: true,
+              handleback: true,
+              confirm_close: true,
               ondismiss: () => {
                 setLoading(false);
                 showToast('Payment was cancelled. Property was not submitted.', 'warning');
@@ -307,13 +369,7 @@ export const AddPropertyWizard: React.FC = () => {
               } finally {
                 setLoading(false);
               }
-            },
-            prefill: {
-              name: currentUser?.businessName || currentUser?.name || 'Authorized Dealer',
-              email: currentUser?.email || 'dealer@sppnestora.com',
-              contact: currentUser?.phone || '9715673055'
-            },
-            theme: { color: '#0f3a22' }
+            }
           };
 
           const rzp = new (window as any).Razorpay(options);
@@ -856,14 +912,28 @@ export const AddPropertyWizard: React.FC = () => {
 
             {/* UPI App & QR scan guidance */}
             {paymentMethod === 'upi' && (
-              <div className="p-3 bg-brand-50/60 border border-brand-200 rounded-xl text-[11px] text-brand-900 space-y-1">
-                <span className="font-bold flex items-center">
-                  <QrCode className="w-3.5 h-3.5 mr-1 text-brand-700" />
-                  Instant UPI App / QR Checkout
-                </span>
-                <p className="text-slate-600 leading-snug">
-                  Pay directly via Google Pay, PhonePe, Paytm, BHIM, or scan the official Razorpay dynamic UPI QR code on screen.
-                </p>
+              <div className="space-y-2">
+                <div className="p-3 bg-brand-50/60 border border-brand-200 rounded-xl text-[11px] text-brand-900 space-y-1">
+                  <span className="font-bold flex items-center">
+                    <QrCode className="w-3.5 h-3.5 mr-1 text-brand-700" />
+                    Instant UPI App / Dynamic QR Checkout
+                  </span>
+                  <p className="text-slate-600 leading-snug">
+                    Pay directly via Google Pay, PhonePe, Paytm, BHIM, or scan the official Razorpay dynamic UPI QR code on screen.
+                  </p>
+                </div>
+
+                {gatewayMethods && gatewayMethods.upi === false && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 space-y-1">
+                    <span className="font-bold flex items-center text-amber-800">
+                      <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                      Razorpay Notice: UPI Activation in Progress
+                    </span>
+                    <p className="text-amber-800 leading-snug">
+                      UPI is currently being activated on our Razorpay account. If the UPI tab is not yet active in your payment window, you can complete payment using Debit/Credit Card or NetBanking.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

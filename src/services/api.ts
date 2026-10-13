@@ -195,6 +195,22 @@ export const apiService = {
   },
 
   // --- PAYMENTS ---
+  async getPaymentMethods(): Promise<{ success: boolean; isSandbox: boolean; methods: { upi: boolean; upiIntent: boolean; upiQr: boolean; card: boolean; netbanking: boolean; wallet: boolean } }> {
+    try {
+      const res = await fetch(`${API_BASE}/payments/methods`, {
+        headers: { ...getAuthHeader() }
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (_) {}
+    return {
+      success: true,
+      isSandbox: false,
+      methods: { upi: true, upiIntent: true, upiQr: true, card: true, netbanking: true, wallet: true }
+    };
+  },
+
   async createPaymentOrder(propertyId: string, propertyTitle: string, method: string) {
     const res = await fetch(`${API_BASE}/payments/create-order`, {
       method: 'POST',
