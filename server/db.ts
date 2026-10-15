@@ -10,6 +10,7 @@ import type {
   Enquiry, 
   SiteVisit, 
   Payment, 
+  PaymentAuditEntry,
   AdminSettings, 
   AppNotification, 
   PropertyStatus,
@@ -57,6 +58,7 @@ export interface DatabaseSchema {
   settings: AdminSettings;
   terms_acceptances: TermsRecord[];
   status_history: StatusHistoryRecord[];
+  webhook_events?: { eventId: string; eventType: string; processedAt: string; payload?: any }[];
 }
 
 const DB_FILE_PATH = path.resolve(process.cwd(), 'server', 'data_store.json');
@@ -94,6 +96,7 @@ class RelationalStore {
       if (fs.existsSync(DB_FILE_PATH)) {
         const fileContent = fs.readFileSync(DB_FILE_PATH, 'utf-8');
         const parsed = JSON.parse(fileContent);
+        parsed.webhook_events = parsed.webhook_events || [];
         // Ensure settings have latest env vars & updated official contact numbers
         parsed.settings = {
           ...parsed.settings,
@@ -138,7 +141,8 @@ class RelationalStore {
           acceptedAt: '2026-02-01T08:00:00Z'
         }
       ],
-      status_history: []
+      status_history: [],
+      webhook_events: []
     };
 
     this.saveToFile(initialSchema);
@@ -218,7 +222,21 @@ class RelationalStore {
           method VARCHAR(64),
           status VARCHAR(32) NOT NULL,
           transaction_ref VARCHAR(255),
+          order_id VARCHAR(100),
+          payment_id VARCHAR(100),
+          verification_method VARCHAR(64),
+          webhook_event_id VARCHAR(100),
+          verified_at TIMESTAMP WITH TIME ZONE,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          audit_log JSONB DEFAULT '[]'::jsonb,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS webhook_events (
+          event_id VARCHAR(100) PRIMARY KEY,
+          event_type VARCHAR(64) NOT NULL,
+          processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          payload JSONB
         );
 
         CREATE TABLE IF NOT EXISTS enquiries (
@@ -259,6 +277,26 @@ class RelationalStore {
           is_read BOOLEAN DEFAULT FALSE,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
+      `);
+
+      // Safe Migrations for existing deployments
+      await client.query(`
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS order_id VARCHAR(100);
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_id VARCHAR(100);
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS verification_method VARCHAR(64);
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS webhook_event_id VARCHAR(100);
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'::jsonb;
+        CREATE TABLE IF NOT EXISTS webhook_events (
+          event_id VARCHAR(100) PRIMARY KEY,
+          event_type VARCHAR(64) NOT NULL,
+          processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          payload JSONB
+        );
+        CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
+        CREATE INDEX IF NOT EXISTS idx_payments_property_id ON payments(property_id);
+        CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
       `);
 
       // Sync Users between PostgreSQL and memory
@@ -359,6 +397,13 @@ class RelationalStore {
             method: row.method,
             status: row.status,
             transactionRef: row.transaction_ref,
+            orderId: row.order_id || undefined,
+            paymentId: row.payment_id || undefined,
+            verificationMethod: row.verification_method || undefined,
+            webhookEventId: row.webhook_event_id || undefined,
+            verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : undefined,
+            updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : undefined,
+            auditLog: typeof row.audit_log === 'string' ? JSON.parse(row.audit_log) : (row.audit_log || []),
             createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString()
           };
           const idx = this.data.payments.findIndex(pm => pm.id === payment.id || (pm.receiptNumber && pm.receiptNumber === payment.receiptNumber));
@@ -368,6 +413,17 @@ class RelationalStore {
             this.data.payments.push(payment);
           }
         }
+      }
+
+      // Sync Webhook Events
+      const webhookRes = await client.query('SELECT * FROM webhook_events');
+      if (webhookRes.rows.length > 0) {
+        this.data.webhook_events = webhookRes.rows.map(r => ({
+          eventId: r.event_id,
+          eventType: r.event_type,
+          processedAt: r.processed_at ? new Date(r.processed_at).toISOString() : new Date().toISOString(),
+          payload: typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload
+        }));
       }
 
       client.release();
@@ -527,7 +583,7 @@ class RelationalStore {
       description: propertyData.description || '',
       descriptionTa: propertyData.descriptionTa,
       type: propertyData.type || 'house_sale',
-      status: this.data.settings.autoApproveProperties ? 'available' : 'pending_approval',
+      status: (dealer.role === 'dealer' ? 'pending_payment' : (this.data.settings.autoApproveProperties ? 'available' : 'pending_approval')) as PropertyStatus,
       price: Number(propertyData.price) || 0,
       priceNegotiable: propertyData.priceNegotiable ?? true,
       rentalPeriod: propertyData.rentalPeriod || 'monthly',
@@ -641,42 +697,217 @@ class RelationalStore {
   }
 
   // --- PAYMENT & INVOICE METHODS ---
+  public getPaymentById(id: string): Payment | undefined {
+    return this.data.payments.find(p => p.id === id);
+  }
+
+  public getPaymentByPropertyId(propertyId: string): Payment | undefined {
+    return this.data.payments.find(p => p.propertyId === propertyId);
+  }
+
+  public getPaymentByOrderId(orderId: string): Payment | undefined {
+    return this.data.payments.find(p => p.orderId === orderId);
+  }
+
+  public getPaymentByRazorpayPaymentId(paymentId: string): Payment | undefined {
+    return this.data.payments.find(p => p.paymentId === paymentId || p.transactionRef === `RZP-${paymentId}`);
+  }
+
+  public isWebhookEventProcessed(eventId: string): boolean {
+    if (!eventId) return false;
+    return (this.data.webhook_events || []).some(e => e.eventId === eventId);
+  }
+
+  public recordWebhookEvent(eventId: string, eventType: string, payload?: any): void {
+    if (!eventId) return;
+    if (!this.data.webhook_events) {
+      this.data.webhook_events = [];
+    }
+    if (this.isWebhookEventProcessed(eventId)) return;
+
+    const eventRecord = {
+      eventId,
+      eventType,
+      processedAt: new Date().toISOString(),
+      payload
+    };
+    this.data.webhook_events.push(eventRecord);
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `INSERT INTO webhook_events (event_id, event_type, processed_at, payload)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (event_id) DO NOTHING`,
+        [eventRecord.eventId, eventRecord.eventType, eventRecord.processedAt, JSON.stringify(payload || {})]
+      ).catch(e => console.warn('[DB Postgres Sync Error] webhook_events insert:', e.message));
+    }
+  }
+
   public recordPayment(paymentData: {
     dealerId: string;
     dealerName: string;
     propertyId: string;
     propertyTitle: string;
     amount: number;
+    currency?: string;
     method: 'upi' | 'card' | 'netbanking' | 'wallet';
     status: 'success' | 'failed' | 'refunded' | 'pending';
     transactionRef?: string;
+    orderId?: string;
+    paymentId?: string;
+    verificationMethod?: 'razorpay_signature' | 'razorpay_webhook' | 'sandbox_simulation';
+    webhookEventId?: string;
+    verifiedAt?: string;
+    auditLog?: PaymentAuditEntry[];
   }): Payment {
+    const existingIndex = this.data.payments.findIndex(
+      p => (paymentData.orderId && p.orderId === paymentData.orderId) ||
+           (paymentData.propertyId && p.propertyId === paymentData.propertyId && p.status === 'pending')
+    );
+
     const receiptNumber = `SPP-REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const now = new Date().toISOString();
+
     const payment: Payment = {
-      id: `pay-${Date.now()}`,
+      id: `pay-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
       receiptNumber,
       dealerId: paymentData.dealerId,
       dealerName: paymentData.dealerName,
       propertyId: paymentData.propertyId,
       propertyTitle: paymentData.propertyTitle,
       amount: paymentData.amount,
-      currency: 'INR',
+      currency: paymentData.currency || 'INR',
       purpose: `Property Listing Fee — ₹${paymentData.amount}`,
       method: paymentData.method,
       status: paymentData.status,
       transactionRef: paymentData.transactionRef || `${paymentData.method.toUpperCase()}-TXN-${Date.now()}`,
-      createdAt: new Date().toISOString()
+      orderId: paymentData.orderId,
+      paymentId: paymentData.paymentId,
+      verificationMethod: paymentData.verificationMethod,
+      webhookEventId: paymentData.webhookEventId,
+      verifiedAt: paymentData.status === 'success' ? (paymentData.verifiedAt || now) : undefined,
+      createdAt: now,
+      updatedAt: now,
+      auditLog: paymentData.auditLog || [
+        {
+          action: `Payment initialized as ${paymentData.status}`,
+          timestamp: now,
+          source: (paymentData.verificationMethod === 'razorpay_webhook' ? 'webhook' : 'checkout_callback')
+        }
+      ]
     };
 
-    this.data.payments.unshift(payment);
+    if (existingIndex >= 0) {
+      payment.id = this.data.payments[existingIndex].id;
+      payment.receiptNumber = this.data.payments[existingIndex].receiptNumber;
+      payment.createdAt = this.data.payments[existingIndex].createdAt;
+      payment.auditLog = [
+        ...(this.data.payments[existingIndex].auditLog || []),
+        {
+          action: `Payment updated to ${paymentData.status}`,
+          timestamp: now,
+          source: (paymentData.verificationMethod === 'razorpay_webhook' ? 'webhook' : 'checkout_callback'),
+          details: `Ref: ${payment.transactionRef}`
+        }
+      ];
+      this.data.payments[existingIndex] = payment;
+    } else {
+      this.data.payments.unshift(payment);
+    }
+
     this.saveToFile(this.data);
 
     if (this.pool && this.isPostgresConnected) {
       this.pool.query(
-        `INSERT INTO payments (id, receipt_number, dealer_id, dealer_name, property_id, property_title, amount, currency, method, status, transaction_ref)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [payment.id, payment.receiptNumber, payment.dealerId, payment.dealerName, payment.propertyId, payment.propertyTitle, payment.amount, payment.currency, payment.method, payment.status, payment.transactionRef]
-      ).catch(e => console.warn('[DB Postgres Sync Error] payment insert:', e.message));
+        `INSERT INTO payments (id, receipt_number, dealer_id, dealer_name, property_id, property_title, amount, currency, method, status, transaction_ref, order_id, payment_id, verification_method, webhook_event_id, verified_at, updated_at, audit_log)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           transaction_ref = EXCLUDED.transaction_ref,
+           order_id = EXCLUDED.order_id,
+           payment_id = EXCLUDED.payment_id,
+           verification_method = EXCLUDED.verification_method,
+           webhook_event_id = EXCLUDED.webhook_event_id,
+           verified_at = EXCLUDED.verified_at,
+           updated_at = EXCLUDED.updated_at,
+           audit_log = EXCLUDED.audit_log`,
+        [
+          payment.id,
+          payment.receiptNumber,
+          payment.dealerId,
+          payment.dealerName,
+          payment.propertyId,
+          payment.propertyTitle,
+          payment.amount,
+          payment.currency,
+          payment.method,
+          payment.status,
+          payment.transactionRef,
+          payment.orderId || null,
+          payment.paymentId || null,
+          payment.verificationMethod || null,
+          payment.webhookEventId || null,
+          payment.verifiedAt || null,
+          payment.updatedAt || null,
+          JSON.stringify(payment.auditLog || [])
+        ]
+      ).catch(e => console.warn('[DB Postgres Sync Error] payment upsert:', e.message));
+    }
+
+    return payment;
+  }
+
+  public updatePayment(
+    paymentId: string, 
+    updates: Partial<Payment>, 
+    auditEntry?: PaymentAuditEntry
+  ): Payment | null {
+    const payment = this.data.payments.find(p => p.id === paymentId || p.orderId === paymentId || p.transactionRef === `RZP-${paymentId}`);
+    if (!payment) return null;
+
+    const now = new Date().toISOString();
+    Object.assign(payment, updates);
+    payment.updatedAt = now;
+
+    if (updates.status === 'success' && !payment.verifiedAt) {
+      payment.verifiedAt = now;
+    }
+
+    if (auditEntry) {
+      if (!payment.auditLog) payment.auditLog = [];
+      payment.auditLog.push({
+        ...auditEntry,
+        timestamp: auditEntry.timestamp || now
+      });
+    }
+
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `UPDATE payments SET
+           status = $1,
+           transaction_ref = $2,
+           payment_id = $3,
+           verification_method = $4,
+           webhook_event_id = $5,
+           verified_at = $6,
+           updated_at = $7,
+           audit_log = $8
+         WHERE id = $9`,
+        [
+          payment.status,
+          payment.transactionRef,
+          payment.paymentId || null,
+          payment.verificationMethod || null,
+          payment.webhookEventId || null,
+          payment.verifiedAt || null,
+          payment.updatedAt || null,
+          JSON.stringify(payment.auditLog || []),
+          payment.id
+        ]
+      ).catch(e => console.warn('[DB Postgres Sync Error] payment update:', e.message));
     }
 
     return payment;

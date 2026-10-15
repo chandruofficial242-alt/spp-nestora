@@ -12,7 +12,12 @@ import { router } from './routes.ts';
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({
+  limit: '50mb',
+  verify: (req: any, _res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // 1. Simple /health endpoint returning HTTP 200 and "OK" (Render Health Check requirement)

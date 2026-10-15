@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { 
@@ -6,10 +6,11 @@ import {
   User, 
   Enquiry, 
   Payment, 
-  AdminSettings,
-  EnquiryStatus,
-  AppNotification
+  AdminSettings, 
+  EnquiryStatus, 
+  AppNotification 
 } from '../types';
+import { apiService } from '../services/api';
 import { InvoiceModal } from '../components/dealer/InvoiceModal';
 import { formatPrice } from '../utils/formatters';
 import { 
@@ -29,7 +30,10 @@ import {
   Trash2,
   Save,
   Bell,
-  UserCheck
+  UserCheck,
+  RefreshCw,
+  FileText,
+  Filter
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
@@ -58,6 +62,31 @@ export const AdminDashboardPage: React.FC = () => {
 
   const [selectedInvoice, setSelectedInvoice] = useState<Payment | null>(null);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+
+  // Payments Dashboard State
+  const [livePayments, setLivePayments] = useState<Payment[]>(payments);
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'success' | 'pending' | 'failed'>('all');
+  const [viewingAuditPayment, setViewingAuditPayment] = useState<Payment | null>(null);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+
+  const fetchLivePayments = async () => {
+    setLoadingPayments(true);
+    try {
+      const data = await apiService.getPayments();
+      if (Array.isArray(data)) {
+        setLivePayments(data);
+      }
+    } catch {
+      // Fallback to context payments
+      setLivePayments(payments);
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLivePayments();
+  }, [activeSection]);
 
   // CRM notes editing state
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
@@ -685,30 +714,297 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* SECTION 8: REVENUE & PAYMENTS */}
+      {/* SECTION 8: REVENUE & PAYMENTS DASHBOARD */}
       {activeSection === 'payments' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-subtle">
-            <h3 className="text-base font-bold text-slate-900 mb-4">Successful Listing Fee Transactions</h3>
-            <div className="divide-y divide-slate-100">
-              {payments.map((p: Payment) => (
-                <div key={p.id} className="py-3.5 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-mono font-bold text-slate-900">{p.receiptNumber}</span>
-                    <p className="text-slate-600 mt-0.5">{p.purpose} • {p.dealerName}</p>
-                    <p className="text-slate-400 text-[11px] font-mono">Ref: {p.transactionRef}</p>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <span className="font-black text-brand-900 text-sm">₹{p.amount}.00</span>
-                    <button
-                      onClick={() => setSelectedInvoice(p)}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-bold cursor-pointer"
-                    >
-                      Receipt
-                    </button>
-                  </div>
+        <div className="space-y-6">
+          {/* Header & KPI Summary */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-subtle space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-brand-100 text-brand-800 flex items-center justify-center">
+                  <IndianRupee className="w-5 h-5" />
                 </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Admin Payments Dashboard</h2>
+                  <p className="text-xs text-slate-500">Live Razorpay ₹10 listing fees, webhook reconciliations & audit logs</p>
+                </div>
+              </div>
+
+              <button
+                onClick={fetchLivePayments}
+                disabled={loadingPayments}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingPayments ? 'animate-spin' : ''}`} />
+                <span>Refresh Payments</span>
+              </button>
+            </div>
+
+            {/* Quick KPI stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200/60">
+                <span className="text-[10px] font-bold uppercase text-emerald-800">Total Captured</span>
+                <span className="text-xl font-black text-emerald-950 block mt-1">
+                  ₹{livePayments.filter(p => p.status === 'success').reduce((acc, p) => acc + p.amount, 0)}.00
+                </span>
+                <span className="text-[10px] text-emerald-700">
+                  {livePayments.filter(p => p.status === 'success').length} transactions
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200/60">
+                <span className="text-[10px] font-bold uppercase text-amber-800">Pending Verification</span>
+                <span className="text-xl font-black text-amber-950 block mt-1">
+                  {livePayments.filter(p => p.status === 'pending').length}
+                </span>
+                <span className="text-[10px] text-amber-700">Awaiting capture/webhook</span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200/60">
+                <span className="text-[10px] font-bold uppercase text-rose-800">Failed / Dropped</span>
+                <span className="text-xl font-black text-rose-950 block mt-1">
+                  {livePayments.filter(p => p.status === 'failed').length}
+                </span>
+                <span className="text-[10px] text-rose-700">Can be retried by dealer</span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/60">
+                <span className="text-[10px] font-bold uppercase text-slate-600">Fixed Listing Fee</span>
+                <span className="text-xl font-black text-brand-900 block mt-1">₹10.00</span>
+                <span className="text-[10px] text-slate-500">Authoritative server fee</span>
+              </div>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex items-center space-x-2 pt-2 border-t border-slate-100 overflow-x-auto pb-1">
+              <span className="text-xs font-bold text-slate-500 flex items-center mr-2">
+                <Filter className="w-3.5 h-3.5 mr-1" />
+                Filter:
+              </span>
+              {(['all', 'success', 'pending', 'failed'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setPaymentFilter(f)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition cursor-pointer ${
+                    paymentFilter === f
+                      ? 'bg-brand-900 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {f === 'all' ? `All (${livePayments.length})` : `${f} (${livePayments.filter(p => p.status === f).length})`}
+                </button>
               ))}
+            </div>
+          </div>
+
+          {/* Transactions List Table */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-subtle overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase font-bold tracking-wider text-[10px]">
+                  <tr>
+                    <th className="p-4">Listing Reference</th>
+                    <th className="p-4">Dealer Account</th>
+                    <th className="p-4">Expected Fee</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4">Razorpay Reference</th>
+                    <th className="p-4">Verification Method</th>
+                    <th className="p-4">Payment Date</th>
+                    <th className="p-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {livePayments
+                    .filter(p => paymentFilter === 'all' ? true : p.status === paymentFilter)
+                    .map(p => {
+                      const prop = properties.find(pr => pr.id === p.propertyId);
+                      return (
+                        <tr key={p.id} className="hover:bg-slate-50/60 transition">
+                          <td className="p-4">
+                            <span className="font-bold text-slate-900 block truncate max-w-[180px]">
+                              {p.propertyTitle || prop?.title || 'Property Listing'}
+                            </span>
+                            <span className="font-mono text-[10px] text-slate-500 block">
+                              {prop?.propertyCode || p.propertyId}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <span className="font-bold text-slate-900 block">{p.dealerName}</span>
+                            <span className="text-[10px] text-slate-500 block">ID: {p.dealerId}</span>
+                          </td>
+                          <td className="p-4">
+                            <span className="font-black text-brand-900 text-sm">
+                              ₹{p.amount}.00
+                            </span>
+                            <span className="text-[10px] text-slate-400 block">{p.currency || 'INR'}</span>
+                          </td>
+                          <td className="p-4">
+                            {p.status === 'success' && (
+                              <span className="bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-full text-[10px] inline-flex items-center space-x-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                <span>Captured</span>
+                              </span>
+                            )}
+                            {p.status === 'pending' && (
+                              <span className="bg-amber-100 text-amber-800 font-bold px-2.5 py-1 rounded-full text-[10px] inline-flex items-center space-x-1">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                <span>Pending</span>
+                              </span>
+                            )}
+                            {p.status === 'failed' && (
+                              <span className="bg-rose-100 text-rose-800 font-bold px-2.5 py-1 rounded-full text-[10px] inline-flex items-center space-x-1">
+                                <XCircle className="w-3 h-3 text-rose-600" />
+                                <span>Failed</span>
+                              </span>
+                            )}
+                            {p.status === 'refunded' && (
+                              <span className="bg-slate-100 text-slate-700 font-bold px-2.5 py-1 rounded-full text-[10px]">
+                                Refunded
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 font-mono text-[11px]">
+                            {p.paymentId ? (
+                              <span className="text-brand-900 font-bold block">{p.paymentId}</span>
+                            ) : p.transactionRef ? (
+                              <span className="text-slate-700 block">{p.transactionRef}</span>
+                            ) : (
+                              <span className="text-slate-400 block">—</span>
+                            )}
+                            {p.orderId && (
+                              <span className="text-[10px] text-slate-400 block">Order: {p.orderId}</span>
+                            )}
+                          </td>
+                          <td className="p-4 text-[10px]">
+                            {p.verificationMethod === 'razorpay_signature' && (
+                              <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold px-2 py-0.5 rounded block text-center">
+                                Checkout (HMAC)
+                              </span>
+                            )}
+                            {p.verificationMethod === 'razorpay_webhook' && (
+                              <span className="bg-blue-50 text-blue-800 border border-blue-200 font-bold px-2 py-0.5 rounded block text-center">
+                                Webhook Captured
+                              </span>
+                            )}
+                            {p.verificationMethod === 'sandbox_simulation' && (
+                              <span className="bg-purple-50 text-purple-800 border border-purple-200 font-bold px-2 py-0.5 rounded block text-center">
+                                Sandbox Sim
+                              </span>
+                            )}
+                            {!p.verificationMethod && (
+                              <span className="text-slate-400">Standard</span>
+                            )}
+                          </td>
+                          <td className="p-4 text-slate-500 text-[11px]">
+                            {p.createdAt ? new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                            <span className="block text-[10px] text-slate-400">
+                              {p.createdAt ? new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                            </span>
+                          </td>
+                          <td className="p-4 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => setViewingAuditPayment(p)}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                              title="View Audit Trail"
+                            >
+                              Audit Trail
+                            </button>
+                            <button
+                              onClick={() => setSelectedInvoice(p)}
+                              className="px-2.5 py-1 bg-brand-50 hover:bg-brand-100 text-brand-900 rounded-lg font-bold text-[11px] cursor-pointer"
+                            >
+                              Receipt
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+
+              {livePayments.filter(p => paymentFilter === 'all' ? true : p.status === paymentFilter).length === 0 && (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  No payment records found matching "{paymentFilter}" filter.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audit Log Modal */}
+      {viewingAuditPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col shadow-elevated">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-5 h-5 text-brand-900" />
+                <h3 className="font-bold text-base text-slate-900">Payment Audit Trail</h3>
+              </div>
+              <button
+                onClick={() => setViewingAuditPayment(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-3 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Receipt / Ref:</span>
+                <span className="font-mono font-bold text-slate-900">{viewingAuditPayment.receiptNumber || viewingAuditPayment.transactionRef}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Dealer:</span>
+                <span className="font-bold text-slate-900">{viewingAuditPayment.dealerName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Property:</span>
+                <span className="font-bold text-slate-900 truncate max-w-[200px]">{viewingAuditPayment.propertyTitle}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Status:</span>
+                <span className="font-bold capitalize text-brand-900">{viewingAuditPayment.status}</span>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Chronological Events</h4>
+              {(viewingAuditPayment.auditLog && viewingAuditPayment.auditLog.length > 0) ? (
+                <div className="space-y-2">
+                  {viewingAuditPayment.auditLog.map((log, idx) => (
+                    <div key={idx} className="p-3 bg-white border border-slate-200 rounded-xl text-xs space-y-1 shadow-2xs">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-slate-900">{log.action}</span>
+                        <span className="font-mono text-[10px] text-slate-400">
+                          {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : ''}
+                        </span>
+                      </div>
+                      {log.details && (
+                        <p className="text-[11px] text-slate-600 font-mono">{log.details}</p>
+                      )}
+                      {log.source && (
+                        <span className="inline-block text-[9px] uppercase font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          Source: {log.source}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 text-center text-slate-400 text-xs bg-slate-50 rounded-xl">
+                  Initial verification record created on {new Date(viewingAuditPayment.createdAt).toLocaleString()}.
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setViewingAuditPayment(null)}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close Audit Trail
+              </button>
             </div>
           </div>
         </div>

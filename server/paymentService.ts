@@ -141,6 +141,29 @@ export class RazorpayPaymentGateway implements IPaymentGateway {
 
       const orderData: any = await response.json();
 
+      // Record pending payment in database for tracking and webhook matching
+      db.recordPayment({
+        dealerId: req.dealerId,
+        dealerName: req.dealerName,
+        propertyId: req.propertyId,
+        propertyTitle: req.propertyTitle,
+        amount: serverVerifiedAmount,
+        currency: 'INR',
+        method: req.paymentMethod || 'upi',
+        status: 'pending',
+        orderId: orderData.id,
+        transactionRef: `ORD-${orderData.id}`,
+        verificationMethod: 'razorpay_signature',
+        auditLog: [
+          {
+            action: 'Razorpay order created',
+            timestamp: new Date().toISOString(),
+            source: 'checkout_callback',
+            details: `Order ID: ${orderData.id}`
+          }
+        ]
+      });
+
       let methods: PaymentMethodsStatus | undefined;
       try {
         methods = await this.getPaymentMethods();
@@ -157,7 +180,6 @@ export class RazorpayPaymentGateway implements IPaymentGateway {
       };
     } catch (err: any) {
       console.error('[Razorpay] Network/API exception:', err.message);
-      // If live keys are invalid placeholders, inform safely
       throw new Error(`Razorpay gateway error: ${err.message}`);
     }
   }
@@ -186,7 +208,7 @@ export class RazorpayPaymentGateway implements IPaymentGateway {
     }
 
     // 2. Prevent duplicate receipt/payment record
-    const existing = db.getSnapshot().payments.find(p => p.transactionRef === `RZP-${req.paymentId}`);
+    const existing = db.getSnapshot().payments.find(p => p.transactionRef === `RZP-${req.paymentId}` || (p.orderId === req.orderId && p.status === 'success'));
     if (existing) {
       return { success: true, paymentRecord: existing };
     }
@@ -198,13 +220,26 @@ export class RazorpayPaymentGateway implements IPaymentGateway {
       propertyId: req.propertyId,
       propertyTitle: req.propertyTitle,
       amount: serverVerifiedAmount,
+      currency: 'INR',
       method: req.method || 'upi',
       status: 'success',
-      transactionRef: `RZP-${req.paymentId}`
+      orderId: req.orderId,
+      paymentId: req.paymentId,
+      transactionRef: `RZP-${req.paymentId}`,
+      verificationMethod: 'razorpay_signature',
+      verifiedAt: new Date().toISOString(),
+      auditLog: [
+        {
+          action: 'Payment verified via Razorpay Checkout signature',
+          timestamp: new Date().toISOString(),
+          source: 'checkout_callback',
+          details: `Payment ID: ${req.paymentId}, Order ID: ${req.orderId}`
+        }
+      ]
     });
 
-    // 4. Update property status to pending_approval and log audit trail
-    db.updatePropertyStatus(req.propertyId, 'pending_approval', req.dealerId, 'dealer', 'Listing fee paid successfully via Razorpay');
+    // 4. Update property status to pending_approval (Admin review required; NEVER publish directly)
+    db.updatePropertyStatus(req.propertyId, 'pending_approval', req.dealerId, 'dealer', 'Listing fee paid successfully via Razorpay Checkout');
 
     return {
       success: true,
@@ -242,6 +277,30 @@ export class SandboxPaymentGateway implements IPaymentGateway {
     }
 
     const orderId = `order_sb_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+    // Track pending payment
+    db.recordPayment({
+      dealerId: req.dealerId,
+      dealerName: req.dealerName,
+      propertyId: req.propertyId,
+      propertyTitle: req.propertyTitle,
+      amount: serverVerifiedAmount,
+      currency: 'INR',
+      method: req.paymentMethod || 'upi',
+      status: 'pending',
+      orderId,
+      transactionRef: `ORD-${orderId}`,
+      verificationMethod: 'sandbox_simulation',
+      auditLog: [
+        {
+          action: 'Sandbox payment order initialized',
+          timestamp: new Date().toISOString(),
+          source: 'checkout_callback',
+          details: `Order ID: ${orderId}`
+        }
+      ]
+    });
+
     return {
       orderId,
       amount: serverVerifiedAmount,
@@ -271,6 +330,7 @@ export class SandboxPaymentGateway implements IPaymentGateway {
       throw new Error(`Property ${req.propertyId} already has a confirmed listing fee payment (${alreadyPaid.transactionRef || alreadyPaid.id}). Duplicate payments are blocked.`);
     }
 
+    const paymentId = req.paymentId || `sb_pay_${Date.now()}`;
     const transactionRef = `SB-TXN-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     
     const paymentRecord = db.recordPayment({
@@ -279,12 +339,25 @@ export class SandboxPaymentGateway implements IPaymentGateway {
       propertyId: req.propertyId,
       propertyTitle: req.propertyTitle,
       amount: serverVerifiedAmount,
+      currency: 'INR',
       method: req.method || 'upi',
       status: 'success',
-      transactionRef
+      orderId: req.orderId,
+      paymentId,
+      transactionRef,
+      verificationMethod: 'sandbox_simulation',
+      verifiedAt: new Date().toISOString(),
+      auditLog: [
+        {
+          action: 'Payment verified in Sandbox mode',
+          timestamp: new Date().toISOString(),
+          source: 'checkout_callback',
+          details: `Ref: ${transactionRef}`
+        }
+      ]
     });
 
-    // Advance property to pending_approval
+    // Advance property to pending_approval (Admin review required)
     db.updatePropertyStatus(req.propertyId, 'pending_approval', req.dealerId, 'dealer', 'Listing fee paid in Sandbox mode');
 
     return {
@@ -294,7 +367,7 @@ export class SandboxPaymentGateway implements IPaymentGateway {
   }
 }
 
-// Webhook signature validator
+// Webhook signature validator (Supports raw Buffer or UTF-8 String)
 export function verifyRazorpayWebhookSignature(rawBody: string | Buffer, signature: string, webhookSecret: string): boolean {
   if (!signature || !webhookSecret) return false;
   try {
@@ -302,10 +375,11 @@ export function verifyRazorpayWebhookSignature(rawBody: string | Buffer, signatu
       .createHmac('sha256', webhookSecret)
       .update(rawBody)
       .digest('hex');
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'utf8'),
-      Buffer.from(signature, 'utf8')
-    );
+
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const signatureBuf = Buffer.from(signature, 'utf8');
+
+    return expectedBuf.length === signatureBuf.length && crypto.timingSafeEqual(expectedBuf, signatureBuf);
   } catch {
     return false;
   }
@@ -314,7 +388,25 @@ export function verifyRazorpayWebhookSignature(rawBody: string | Buffer, signatu
 // Reconcile payment from webhook event
 export function handleWebhookPaymentReconciliation(event: any): { success: boolean; message: string; payment?: Payment } {
   try {
-    const paymentEntity = event?.payload?.payment?.entity;
+    if (!event) {
+      return { success: false, message: 'Empty webhook payload' };
+    }
+
+    const eventId = event.id;
+    const eventType = event.event || 'payment.captured';
+
+    // 1. Idempotency Check: Don't reprocess identical webhook event delivery
+    if (eventId && db.isWebhookEventProcessed(eventId)) {
+      const existingPayment = db.getPaymentByRazorpayPaymentId(event.payload?.payment?.entity?.id) ||
+                              db.getPaymentByOrderId(event.payload?.payment?.entity?.order_id);
+      return { 
+        success: true, 
+        message: `Webhook event ${eventId} already processed (idempotent acknowledgement)`, 
+        payment: existingPayment 
+      };
+    }
+
+    const paymentEntity = event?.payload?.payment?.entity || event?.payload?.order?.entity;
     if (!paymentEntity) {
       return { success: false, message: 'Missing payment entity in webhook payload' };
     }
@@ -323,16 +415,81 @@ export function handleWebhookPaymentReconciliation(event: any): { success: boole
     const propertyTitle = paymentEntity.notes?.propertyTitle || 'Property Listing';
     const dealerId = paymentEntity.notes?.dealerId || 'dealer';
     const paymentId = paymentEntity.id;
-    const amountInRupees = Math.round((paymentEntity.amount || 1000) / 100);
+    const orderId = paymentEntity.order_id;
     const method = (paymentEntity.method || 'upi') as 'upi' | 'card' | 'netbanking' | 'wallet';
 
     if (!propertyId) {
       return { success: false, message: 'Webhook event has no propertyId note attached' };
     }
 
-    // Check if already recorded
-    const existing = db.getSnapshot().payments.find(p => p.transactionRef === `RZP-${paymentId}` || (p.propertyId === propertyId && p.status === 'success'));
+    // 2. Validate Currency (Must be INR)
+    const currency = String(paymentEntity.currency || 'INR').toUpperCase();
+    if (currency !== 'INR') {
+      return { success: false, message: `Invalid webhook currency: expected INR, received ${currency}` };
+    }
+
+    // 3. Validate Amount (Must be exactly 1000 paise / ₹10)
+    const amountInPaise = Number(paymentEntity.amount || 0);
+    if (amountInPaise !== 1000) {
+      return { success: false, message: `Invalid webhook payment amount: expected 1000 paise (₹10), received ${amountInPaise}` };
+    }
+    const amountInRupees = 10;
+
+    // 4. Handle 'payment.failed'
+    if (eventType === 'payment.failed') {
+      // CRITICAL: Never allow a failed event to overwrite a previously confirmed successful payment
+      const existingSuccess = db.getSnapshot().payments.find(
+        p => (p.propertyId === propertyId && p.status === 'success') || 
+             (p.transactionRef === `RZP-${paymentId}` && p.status === 'success')
+      );
+
+      if (existingSuccess) {
+        if (eventId) db.recordWebhookEvent(eventId, eventType, event.payload);
+        return { 
+          success: true, 
+          message: 'Ignored failed event: property already has a confirmed successful payment',
+          payment: existingSuccess 
+        };
+      }
+
+      // Record failed payment
+      const failedPayment = db.recordPayment({
+        dealerId,
+        dealerName: 'Dealer',
+        propertyId,
+        propertyTitle,
+        amount: amountInRupees,
+        currency: 'INR',
+        method,
+        status: 'failed',
+        orderId,
+        paymentId,
+        transactionRef: `RZP-${paymentId}`,
+        verificationMethod: 'razorpay_webhook',
+        webhookEventId: eventId,
+        auditLog: [
+          {
+            action: 'Payment marked as failed via Razorpay webhook',
+            timestamp: new Date().toISOString(),
+            source: 'webhook',
+            details: `Error: ${paymentEntity.error_description || 'Payment Failed'}`
+          }
+        ]
+      });
+
+      if (eventId) db.recordWebhookEvent(eventId, eventType, event.payload);
+      return { success: true, message: 'Payment failure recorded safely', payment: failedPayment };
+    }
+
+    // 5. Handle 'payment.captured' or 'order.paid'
+    const existing = db.getSnapshot().payments.find(
+      p => p.transactionRef === `RZP-${paymentId}` || 
+           (p.orderId && p.orderId === orderId && p.status === 'success') ||
+           (p.propertyId === propertyId && p.status === 'success')
+    );
+
     if (existing) {
+      if (eventId) db.recordWebhookEvent(eventId, eventType, event.payload);
       return { success: true, message: 'Payment already reconciled', payment: existing };
     }
 
@@ -345,17 +502,99 @@ export function handleWebhookPaymentReconciliation(event: any): { success: boole
       propertyId,
       propertyTitle,
       amount: amountInRupees,
+      currency: 'INR',
       method,
       status: 'success',
-      transactionRef: `RZP-${paymentId}`
+      orderId,
+      paymentId,
+      transactionRef: `RZP-${paymentId}`,
+      verificationMethod: 'razorpay_webhook',
+      webhookEventId: eventId,
+      verifiedAt: new Date().toISOString(),
+      auditLog: [
+        {
+          action: 'Payment verified and captured via Razorpay webhook',
+          timestamp: new Date().toISOString(),
+          source: 'webhook',
+          details: `Event ID: ${eventId}, Payment ID: ${paymentId}`
+        }
+      ]
     });
 
-    db.updatePropertyStatus(propertyId, 'pending_approval', dealerId, 'dealer', 'Listing fee reconciled automatically via Razorpay webhook');
+    // Advance property to pending_approval for Admin review (NOT automatically published)
+    db.updatePropertyStatus(propertyId, 'pending_approval', dealer?.id || dealerId, 'dealer', 'Listing fee reconciled automatically via Razorpay webhook');
 
-    return { success: true, message: 'Payment successfully reconciled', payment: paymentRecord };
+    // Record webhook event for idempotency
+    if (eventId) {
+      db.recordWebhookEvent(eventId, eventType, event.payload);
+    }
+
+    return { success: true, message: 'Payment successfully reconciled via webhook', payment: paymentRecord };
   } catch (err: any) {
     return { success: false, message: err.message || 'Webhook reconciliation error' };
   }
+}
+
+// Server-side check for order payment status (Polled by frontend or fallback check)
+export async function checkOrderStatus(orderId: string, propertyId?: string): Promise<{ status: string; payment?: Payment }> {
+  // 1. Check local database first
+  const existingPayment = db.getPaymentByOrderId(orderId) || (propertyId ? db.getPaymentByPropertyId(propertyId) : undefined);
+  if (existingPayment && existingPayment.status === 'success') {
+    return { status: 'success', payment: existingPayment };
+  }
+
+  // 2. If real Razorpay keys are configured, query official Orders API
+  const rzpKeyId = (process.env.RAZORPAY_KEY_ID || '').trim();
+  const rzpKeySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+
+  if (rzpKeyId && rzpKeySecret && !rzpKeyId.includes('placeholder') && rzpKeyId.startsWith('rzp_')) {
+    try {
+      const authHeader = 'Basic ' + Buffer.from(`${rzpKeyId}:${rzpKeySecret}`).toString('base64');
+      const res = await fetch(`https://api.razorpay.com/v1/orders/${orderId}/payments`, {
+        headers: { 'Authorization': authHeader }
+      });
+
+      if (res.ok) {
+        const data: any = await res.json();
+        const items = data.items || [];
+        const captured = items.find((item: any) => item.status === 'captured');
+
+        if (captured && propertyId) {
+          const prop = db.getPropertyById(propertyId);
+          const paymentRecord = db.recordPayment({
+            dealerId: captured.notes?.dealerId || prop?.dealerId || 'dealer',
+            dealerName: captured.notes?.dealerName || prop?.dealerName || 'Dealer',
+            propertyId,
+            propertyTitle: captured.notes?.propertyTitle || prop?.title || 'Property Listing',
+            amount: 10,
+            currency: 'INR',
+            method: (captured.method || 'upi') as any,
+            status: 'success',
+            orderId,
+            paymentId: captured.id,
+            transactionRef: `RZP-${captured.id}`,
+            verificationMethod: 'razorpay_webhook',
+            verifiedAt: new Date().toISOString(),
+            auditLog: [
+              {
+                action: 'Payment verified via Razorpay Orders Status check',
+                timestamp: new Date().toISOString(),
+                source: 'status_poll',
+                details: `Payment ID: ${captured.id}`
+              }
+            ]
+          });
+
+          db.updatePropertyStatus(propertyId, 'pending_approval', paymentRecord.dealerId, 'dealer', 'Listing fee verified via Order Status Check');
+          return { status: 'success', payment: paymentRecord };
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Razorpay Order Status Check Warning]:', err.message);
+    }
+  }
+
+  return { status: existingPayment ? existingPayment.status : 'pending', payment: existingPayment };
 }
 
 // Instantiate proper gateway depending on environment
@@ -372,6 +611,5 @@ const isRealKeysConfigured = Boolean(
 export const paymentGateway: IPaymentGateway = isRealKeysConfigured
   ? new RazorpayPaymentGateway(rzpKeyId, rzpKeySecret)
   : new SandboxPaymentGateway();
-
 
 console.log(`[SPP Nestora Payment] Gateway initialized: ${isRealKeysConfigured ? (rzpKeyId.startsWith('rzp_live_') ? 'LIVE Razorpay Gateway' : 'TEST Razorpay Gateway') : 'Sandbox Gateway (No live keys provided)'}`);

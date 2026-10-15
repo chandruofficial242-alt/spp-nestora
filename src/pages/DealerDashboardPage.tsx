@@ -175,6 +175,12 @@ export const DealerDashboardPage: React.FC = () => {
                               {prop.propertyCode}
                             </span>
                             
+                            {prop.status === 'pending_payment' && (
+                              <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded flex items-center space-x-1">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                <span>Listing Fee Pending (₹10)</span>
+                              </span>
+                            )}
                             {prop.status === 'available' && (
                               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
                                 Active Live

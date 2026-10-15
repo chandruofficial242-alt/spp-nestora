@@ -12,6 +12,7 @@ export type PropertyStatus =
   | 'sold' 
   | 'rented' 
   | 'hidden' 
+  | 'pending_payment'
   | 'pending_approval' 
   | 'rejected'
   | 'archived';
@@ -184,6 +185,13 @@ export interface SiteVisit {
   createdAt: string;
 }
 
+export interface PaymentAuditEntry {
+  action: string;
+  timestamp: string;
+  details?: string;
+  source?: 'checkout_callback' | 'webhook' | 'status_poll' | 'admin_action' | 'system';
+}
+
 export interface Payment {
   id: string;
   receiptNumber: string;
@@ -193,11 +201,18 @@ export interface Payment {
   propertyTitle: string;
   amount: number;
   currency: string;
-  purpose: string; // "Property Listing Fee"
+  purpose: string; // "Property Listing Fee — ₹10"
   method: 'upi' | 'card' | 'netbanking' | 'wallet';
   status: PaymentStatus;
   transactionRef: string;
+  orderId?: string;
+  paymentId?: string;
+  verificationMethod?: 'razorpay_signature' | 'razorpay_webhook' | 'sandbox_simulation';
+  webhookEventId?: string;
   createdAt: string;
+  verifiedAt?: string;
+  updatedAt?: string;
+  auditLog?: PaymentAuditEntry[];
 }
 
 export interface AppNotification {

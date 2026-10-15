@@ -23,7 +23,7 @@ import {
 import confetti from 'canvas-confetti';
 
 export const AddPropertyWizard: React.FC = () => {
-  const { t, currentUser, addProperty, settings, showToast } = useApp();
+  const { t, currentUser, settings, showToast } = useApp();
   const navigate = useNavigate();
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -31,6 +31,15 @@ export const AddPropertyWizard: React.FC = () => {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [receipt, setReceipt] = useState<Payment | null>(null);
   const [createdProperty, setCreatedProperty] = useState<Property | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'pending' | 'success' | 'failed'>('idle');
+  const pollingRef = React.useRef<any>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
 
   // Guard: Ensure dealer is authenticated
   React.useEffect(() => {
@@ -245,7 +254,7 @@ export const AddPropertyWizard: React.FC = () => {
     });
   };
 
-  // Submit & Pay Listing Fee (Real Razorpay / Sandbox Hybrid)
+  // Submit & Pay Listing Fee (Real Razorpay / Sandbox Hybrid with Status Polling & Retry)
   const handlePaymentAndSubmit = async () => {
     const token = localStorage.getItem('spp_nestora_token');
     if (!token || !currentUser) {
@@ -255,22 +264,48 @@ export const AddPropertyWizard: React.FC = () => {
     }
 
     setLoading(true);
+    setPaymentError(null);
+    setPaymentStatus('pending');
+
     try {
-      const tempPropId = `prop-${Date.now()}`;
-      
-      // 1. Create order on backend (Authoritative server-side ₹10 fee)
+      // 1. Ensure property is saved in backend with pending_payment status (or reused on retry)
+      let targetProperty = createdProperty;
+      if (!targetProperty) {
+        const propRes = await apiService.createProperty(formData);
+        targetProperty = propRes.property;
+        setCreatedProperty(targetProperty);
+      }
+
+      // 2. Create authoritative order on backend (Exact ₹10 fee)
       const order = await apiService.createPaymentOrder(
-        tempPropId,
-        formData.title || 'Property Listing',
+        targetProperty.id,
+        targetProperty.title || formData.title || 'Property Listing',
         paymentMethod
       );
 
-      // 2. Check if real Razorpay key is present
       const isRealRazorpay = order.keyId && order.keyId.startsWith('rzp_') && !order.keyId.includes('placeholder');
 
       if (order.methods) {
         setGatewayMethods(order.methods);
       }
+
+      // Start background status polling in case of UPI external redirect / delayed webhook
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      pollingRef.current = setInterval(async () => {
+        try {
+          if (!targetProperty) return;
+          const statusRes = await apiService.checkPaymentStatus(targetProperty.id);
+          if (statusRes.paymentStatus === 'success') {
+            if (pollingRef.current) clearInterval(pollingRef.current);
+            setReceipt(statusRes.payment || null);
+            setPaymentStatus('success');
+            setLoading(false);
+            setCurrentStep(7);
+            confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+            showToast('Payment verified successfully via Razorpay!', 'success');
+          }
+        } catch {}
+      }, 4000);
 
       if (isRealRazorpay) {
         const scriptLoaded = await loadRazorpayScript();
@@ -319,7 +354,6 @@ export const AddPropertyWizard: React.FC = () => {
               contact: currentUser?.phone || '9715673055',
               ...(paymentMethod === 'upi' ? { method: 'upi' } : {})
             },
-            // Configure display blocks at both locations for complete Razorpay SDK compatibility
             config: {
               display: displayConfig
             },
@@ -332,7 +366,9 @@ export const AddPropertyWizard: React.FC = () => {
               confirm_close: true,
               ondismiss: () => {
                 setLoading(false);
-                showToast('Payment was cancelled. Property was not submitted.', 'warning');
+                setPaymentStatus('failed');
+                setPaymentError('Payment was not completed. Your property listing remains saved in your dealer account as "Pending Payment". You can retry anytime.');
+                showToast('Payment window closed. You can retry paying the ₹10 fee.', 'warning');
               }
             },
             handler: async (response: any) => {
@@ -343,8 +379,8 @@ export const AddPropertyWizard: React.FC = () => {
                   orderId: order.orderId,
                   paymentId: response.razorpay_payment_id,
                   signature: response.razorpay_signature,
-                  propertyId: tempPropId,
-                  propertyTitle: formData.title || 'Property Listing',
+                  propertyId: targetProperty.id,
+                  propertyTitle: targetProperty.title,
                   method: paymentMethod
                 });
 
@@ -352,19 +388,16 @@ export const AddPropertyWizard: React.FC = () => {
                   throw new Error('Payment signature verification failed.');
                 }
 
-                // Add property to application state
-                const result = await addProperty(formData, {
-                  method: paymentMethod,
-                  amount: order.amount
-                });
-
-                setReceipt(verifyRes.paymentRecord || result.receipt);
-                setCreatedProperty(result.property);
+                if (pollingRef.current) clearInterval(pollingRef.current);
+                setReceipt(verifyRes.paymentRecord);
+                setPaymentStatus('success');
                 setCurrentStep(7);
                 confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
                 showToast('Payment successful! Property submitted for Admin review.', 'success');
               } catch (verifyErr: any) {
                 console.error('Payment verification failed:', verifyErr);
+                setPaymentStatus('failed');
+                setPaymentError(verifyErr.message || 'Payment signature verification failed.');
                 showToast(verifyErr.message || 'Payment verification failed', 'error');
               } finally {
                 setLoading(false);
@@ -382,8 +415,8 @@ export const AddPropertyWizard: React.FC = () => {
       const verifyRes = await apiService.verifyPayment({
         orderId: order.orderId,
         paymentId: `sim_pay_${Date.now()}`,
-        propertyId: tempPropId,
-        propertyTitle: formData.title || 'Property Listing',
+        propertyId: targetProperty.id,
+        propertyTitle: targetProperty.title,
         method: paymentMethod
       });
 
@@ -391,20 +424,16 @@ export const AddPropertyWizard: React.FC = () => {
         throw new Error('Payment verification failed on server');
       }
 
-      const result = await addProperty(formData, {
-        method: paymentMethod,
-        amount: order.amount
-      });
-
-      if (result.success) {
-        setReceipt(verifyRes.paymentRecord || result.receipt);
-        setCreatedProperty(result.property);
-        setCurrentStep(7); // Success Step
-        confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
-        showToast('Listing fee recorded! Property submitted for Admin review.', 'success');
-      }
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      setReceipt(verifyRes.paymentRecord);
+      setPaymentStatus('success');
+      setCurrentStep(7); // Success Step
+      confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+      showToast('Listing fee recorded! Property submitted for Admin review.', 'success');
     } catch (err: any) {
       console.error('Payment failure:', err);
+      setPaymentStatus('failed');
+      setPaymentError(err.message || 'Payment processing failed. Please retry.');
       showToast(err.message || 'Payment processing failed. Please try again.', 'error');
     } finally {
       setLoading(false);
@@ -949,7 +978,22 @@ export const AddPropertyWizard: React.FC = () => {
             </div>
           </div>
 
-          <div className="max-w-md mx-auto pt-2">
+          <div className="max-w-md mx-auto pt-2 space-y-3">
+            {paymentError && (
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 space-y-1 animate-fadeIn">
+                <span className="font-bold flex items-center text-rose-800">
+                  <AlertTriangle className="w-4 h-4 mr-1.5 text-rose-600 flex-shrink-0" />
+                  Payment Incomplete / Failed
+                </span>
+                <p className="leading-relaxed">{paymentError}</p>
+                {createdProperty && (
+                  <p className="text-[11px] text-rose-700">
+                    Listing Draft Reference: <strong className="font-mono">{createdProperty.propertyCode}</strong> — Retrying will not duplicate your listing.
+                  </p>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               disabled={loading}
@@ -961,10 +1005,15 @@ export const AddPropertyWizard: React.FC = () => {
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   Connecting to Secure Razorpay Gateway...
                 </span>
+              ) : paymentStatus === 'failed' ? (
+                <>
+                  <ShieldCheck className="w-5 h-5 text-emerald-300" />
+                  <span>Retry Payment — Pay ₹{settings.listingFeeAmount || 10}</span>
+                </>
               ) : (
                 <>
                   <ShieldCheck className="w-5 h-5 text-emerald-300" />
-                  <span>Proceed to Pay ₹{settings.listingFeeAmount || 10} via Razorpay</span>
+                  <span>Pay ₹{settings.listingFeeAmount || 10} via Razorpay</span>
                 </>
               )}
             </button>

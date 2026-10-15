@@ -244,6 +244,25 @@ export const apiService = {
     return res.json();
   },
 
+  async checkPaymentStatus(propertyId: string): Promise<{ paymentStatus: string; propertyStatus?: string; payment?: Payment; message?: string }> {
+    const res = await fetch(`${API_BASE}/payments/status/${propertyId}`, {
+      headers: getAuthHeader()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to check payment status');
+    }
+    return res.json();
+  },
+
+  async getPayments(): Promise<Payment[]> {
+    const res = await fetch(`${API_BASE}/payments`, {
+      headers: getAuthHeader()
+    });
+    if (!res.ok) throw new Error('Failed to fetch payments');
+    return res.json();
+  },
+
   // --- ENQUIRIES & SITE VISITS ---
   async submitEnquiry(enquiry: any): Promise<Enquiry> {
     const res = await fetch(`${API_BASE}/enquiries`, {

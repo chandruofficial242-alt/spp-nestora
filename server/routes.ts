@@ -3,7 +3,7 @@ import express from 'express';
 import { db } from './db.ts';
 import { authenticate, requireRole, generateAuthToken, type AuthenticatedRequest } from './auth.ts';
 import { sanitizePropertyForPublic, sanitizePropertiesListForPublic, sanitizeUser } from './sanitizer.ts';
-import { paymentGateway, verifyRazorpayWebhookSignature, handleWebhookPaymentReconciliation } from './paymentService.ts';
+import { paymentGateway, verifyRazorpayWebhookSignature, handleWebhookPaymentReconciliation, checkOrderStatus } from './paymentService.ts';
 import { emailService, sanitizeRedirectUri, sanitizeClientId } from './emailService.ts';
 import { uploadMiddleware, processUploadedFile } from './uploadService.ts';
 import { createRateLimiter } from './rateLimiter.ts';
@@ -303,6 +303,11 @@ router.patch('/properties/:id/status', authenticate, (req: AuthenticatedRequest,
       return res.status(403).json({ error: 'You are not authorized to update this property.' });
     }
 
+    // Security check: Dealers cannot approve their own listings or bypass the approval queue
+    if (user.role !== 'admin' && ['available', 'pending_approval', 'rejected'].includes(status)) {
+      return res.status(403).json({ error: 'Dealers cannot approve their own listings or alter review states. Only SPP Nestora Admin can approve listings.' });
+    }
+
     const updated = db.updatePropertyStatus(id, status, user.id, user.role, reason);
     return res.json({ success: true, property: updated });
   } catch (err: any) {
@@ -347,11 +352,21 @@ router.post('/payments/create-order', paymentLimiter, authenticate, requireRole(
     const { propertyId, propertyTitle, method } = req.body;
     const dealer = req.user!;
 
+    if (!propertyId) {
+      return res.status(400).json({ error: 'propertyId is required to create a payment order' });
+    }
+
+    // Security check: If property exists in DB, ensure it belongs to the dealer
+    const existingProp = db.getPropertyById(propertyId);
+    if (existingProp && dealer.role !== 'admin' && existingProp.dealerId !== dealer.id) {
+      return res.status(403).json({ error: 'Unauthorized: cannot initiate payment for another dealer\'s property' });
+    }
+
     const order = await paymentGateway.createOrder({
       dealerId: dealer.id,
       dealerName: dealer.businessName || dealer.name,
       propertyId,
-      propertyTitle,
+      propertyTitle: propertyTitle || existingProp?.title || 'Property Listing',
       paymentMethod: method || 'upi'
     });
 
@@ -366,6 +381,16 @@ router.post('/payments/verify', paymentLimiter, authenticate, requireRole(['deal
     const { orderId, paymentId, signature, propertyId, propertyTitle, method } = req.body;
     const dealer = req.user!;
 
+    if (!propertyId || !orderId) {
+      return res.status(400).json({ error: 'propertyId and orderId are required for payment verification' });
+    }
+
+    // Security check: Property must belong to this dealer if it exists in DB
+    const prop = db.getPropertyById(propertyId);
+    if (prop && dealer.role !== 'admin' && prop.dealerId !== dealer.id) {
+      return res.status(403).json({ error: 'Unauthorized to verify payment for this property' });
+    }
+
     const result = await paymentGateway.verifyPayment({
       orderId,
       paymentId: paymentId || `pay_${Date.now()}`,
@@ -373,7 +398,7 @@ router.post('/payments/verify', paymentLimiter, authenticate, requireRole(['deal
       dealerId: dealer.id,
       dealerName: dealer.businessName || dealer.name,
       propertyId,
-      propertyTitle,
+      propertyTitle: propertyTitle || prop?.title || 'Property Listing',
       method: method || 'upi'
     });
 
@@ -382,7 +407,7 @@ router.post('/payments/verify', paymentLimiter, authenticate, requireRole(['deal
       targetRole: 'admin',
       title: `₹10 Payment Verified – Receipt #${result.paymentRecord.receiptNumber}`,
       titleTa: `₹10 கட்டணம் சரிபார்க்கப்பட்டது – ரசீது #${result.paymentRecord.receiptNumber}`,
-      message: `${dealer.name} paid ₹10 via ${result.paymentRecord.method.toUpperCase()} for "${propertyTitle}".`,
+      message: `${dealer.name} paid ₹10 via ${result.paymentRecord.method.toUpperCase()} for "${propertyTitle || prop?.title}".`,
       messageTa: `${dealer.name} ₹10 கட்டணத்தை வெற்றிகரமாக செலுத்தியுள்ளார்.`,
       link: '/admin'
     });
@@ -400,13 +425,17 @@ router.post('/payments/verify', paymentLimiter, authenticate, requireRole(['deal
   }
 });
 
-// Razorpay Webhook Endpoint for automated server reconciliation
+// Razorpay Webhook Endpoint for automated server reconciliation with RAW BODY verification
 router.post('/payments/webhook', (req, res) => {
   const signature = req.headers['x-razorpay-signature'] as string;
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || '';
 
-  if (webhookSecret && signature) {
-    const rawBody = JSON.stringify(req.body);
+  if (webhookSecret) {
+    if (!signature) {
+      return res.status(400).json({ error: 'Missing x-razorpay-signature header' });
+    }
+    // Use rawBody buffer captured in express.json({ verify: ... })
+    const rawBody = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
     const isValid = verifyRazorpayWebhookSignature(rawBody, signature, webhookSecret);
     if (!isValid) {
       return res.status(400).json({ error: 'Invalid webhook signature' });
@@ -415,11 +444,51 @@ router.post('/payments/webhook', (req, res) => {
 
   const result = handleWebhookPaymentReconciliation(req.body);
 
-  if (result.success && result.payment) {
+  if (result.success && result.payment && result.payment.status === 'success') {
     emailService.sendPaymentVerifiedNotification(result.payment).catch(e => console.warn('[Email Error]:', e.message));
   }
 
   return res.json({ status: 'ok', ...result });
+});
+
+// Status check endpoint for frontend polling or fallback reconciliation
+router.get('/payments/status/:propertyId', authenticate, async (req: AuthenticatedRequest, res) => {
+  try {
+    const propertyId = req.params.propertyId as string;
+    const user = req.user!;
+    const property = db.getPropertyById(propertyId);
+
+    if (!property) {
+      return res.status(404).json({ error: 'Property not found' });
+    }
+
+    if (user.role !== 'admin' && property.dealerId !== user.id) {
+      return res.status(403).json({ error: 'Unauthorized to view this payment status' });
+    }
+
+    const payment = db.getPaymentByPropertyId(propertyId);
+
+    // If pending and has orderId, check Razorpay status
+    if (payment && payment.status === 'pending' && payment.orderId) {
+      const orderCheck = await checkOrderStatus(payment.orderId, propertyId);
+      if (orderCheck.status === 'success' && orderCheck.payment) {
+        return res.json({
+          paymentStatus: 'success',
+          propertyStatus: 'pending_approval',
+          payment: orderCheck.payment,
+          message: 'Payment verified and property moved to pending approval queue'
+        });
+      }
+    }
+
+    return res.json({
+      paymentStatus: payment?.status || 'pending',
+      propertyStatus: property.status,
+      payment: payment || null
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to check payment status' });
+  }
 });
 
 router.get('/payments', authenticate, (req: AuthenticatedRequest, res) => {
