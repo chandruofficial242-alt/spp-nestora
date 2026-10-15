@@ -111,7 +111,7 @@ export const InvoiceModal: React.FC<Props> = ({ payment, isOpen, onClose }) => {
           <div className="p-3 bg-brand-50/60 rounded-xl border border-brand-100 text-[11px] text-brand-900 flex items-start space-x-2">
             <ShieldCheck className="w-4 h-4 text-brand-700 flex-shrink-0 mt-0.5" />
             <span>
-              This receipt confirms the official ₹10 listing fee payment. SPP Nestora does not collect any mandatory transaction commission from buyers or sellers.
+              This receipt confirms the official ₹10 listing fee payment. Broker commission for land transactions facilitated through an associated broker may apply as agreed between concerned parties.
             </span>
           </div>
 

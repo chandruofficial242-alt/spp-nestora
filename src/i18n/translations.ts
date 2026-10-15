@@ -27,10 +27,21 @@ export interface TranslationDict {
     saved: string;
   };
   notice: {
+    brandHeading?: string;
+    tagline?: string;
     title: string;
-    content: string;
+    platformConnect?: string;
+    brokerCommissionTitle?: string;
+    brokerCommissionText?: string;
+    listingFeeTitle?: string;
+    listingFeeText?: string;
+    platformVisitsTitle?: string;
+    platformVisitsText?: string;
+    privacyTitle?: string;
+    privacyText?: string;
     agreeCheckbox: string;
     acceptBtn: string;
+    content: string;
   };
   hero: {
     badge: string;
@@ -282,10 +293,21 @@ export const translations: Record<'en' | 'ta', TranslationDict> = {
       saved: 'Saved',
     },
     notice: {
+      brandHeading: 'SPP Nestora',
+      tagline: 'Find Your Place. Build Your Future.',
       title: 'Important Notice',
-      content: `This platform provides a service to connect Property Owners/Dealers and Customers. Property verification, document verification and agreements must be independently verified and completed by the respective parties.\n\nNo mandatory commission is charged through this platform. Any applicable property listing fee will be clearly displayed separately.`,
+      platformConnect: 'This platform connects property owners/dealers with customers. Property ownership, property documents, legal verification, and agreements must be independently verified and completed by the respective parties.',
+      brokerCommissionTitle: 'Broker Commission for Land Transactions:',
+      brokerCommissionText: 'For land purchase or sale transactions facilitated through a broker associated with SPP Nestora, applicable broker commission may be charged. The commission amount or percentage, payment responsibility, and applicable terms must be clearly communicated and agreed upon by the concerned parties before proceeding with the transaction.',
+      listingFeeTitle: 'Property Listing Fee:',
+      listingFeeText: 'Any applicable property listing fee will be displayed separately before listing submission.',
+      platformVisitsTitle: 'Platform-Assisted Visits:',
+      platformVisitsText: 'Site visits are coordinated through the SPP Nestora Admin Desk.',
+      privacyTitle: 'Privacy:',
+      privacyText: 'Customer and dealer contact details are protected and shared only as necessary for authorized coordination.',
       agreeCheckbox: 'I have read and agree to the above terms & conditions.',
       acceptBtn: 'Accept & Continue',
+      content: `This platform connects property owners/dealers with customers. Property ownership, property documents, legal verification, and agreements must be independently verified and completed by the respective parties.\n\nBroker Commission for Land Transactions: For land purchase or sale transactions facilitated through a broker associated with SPP Nestora, applicable broker commission may be charged. The commission amount or percentage, payment responsibility, and applicable terms must be clearly communicated and agreed upon by the concerned parties before proceeding with the transaction.\n\nProperty Listing Fee: Any applicable property listing fee will be displayed separately before listing submission.\n\nPlatform-Assisted Visits: Site visits are coordinated through the SPP Nestora Admin Desk.\n\nPrivacy: Customer and dealer contact details are protected and shared only as necessary for authorized coordination.`,
     },
     hero: {
       badge: '🌟 Tamil Nadu\'s Trusted Real Estate Network',
@@ -445,7 +467,7 @@ export const translations: Record<'en' | 'ta', TranslationDict> = {
       uploadVideo: 'Property Video (Upload file or YouTube/Drive link)',
       reviewTitle: 'Review Property Details Before Submission',
       listingFeeTitle: 'Property Listing Fee — ₹10',
-      listingFeeDesc: 'Every dealer property listing requires a nominal listing fee of ₹10. This is NOT a commission. Your property will be reviewed by admin and published immediately upon approval.',
+      listingFeeDesc: 'Every dealer property listing requires a nominal listing fee of ₹10. This is a separate property listing fee. Your property will be reviewed by admin and published immediately upon approval.',
       payAndSubmit: 'Pay ₹10 & Submit Listing',
       prevStep: 'Previous Step',
       nextStep: 'Continue to Next Step',
@@ -535,10 +557,21 @@ export const translations: Record<'en' | 'ta', TranslationDict> = {
       saved: 'விருப்பங்கள்',
     },
     notice: {
+      brandHeading: 'SPP Nestora',
+      tagline: 'Find Your Place. Build Your Future.',
       title: 'முக்கிய அறிவிப்பு',
-      content: `இந்த தளத்தின் மூலம் Property Owner/Dealer மற்றும் Customer இடையே தொடர்பு ஏற்படுத்துவதற்கான சேவை வழங்கப்படுகிறது. Property verification, documents verification மற்றும் agreement போன்றவை சம்பந்தப்பட்ட தரப்பினரின் பொறுப்பாகும்.\n\nஇந்த தளத்தில் கட்டாய commission வசூலிக்கப்படாது. Dealer property listing செய்வதற்கு பொருந்தும் listing fee தனியாக காட்டப்படும்.`,
-      agreeCheckbox: 'மேலே உள்ள விதிமுறைகளை நான் படித்து முழுமையாக ஒப்புக்கொள்கிறேன்.',
+      platformConnect: 'இந்த தளத்தின் மூலம் சொத்து உரிமையாளர்கள் / டீலர்கள் மற்றும் வாடிக்கையாளர்களுக்கு இடையே தொடர்பு ஏற்படுத்தும் சேவை வழங்கப்படுகிறது. சொத்தின் உரிமை, சொத்து ஆவணங்கள், சட்டப்பூர்வ சரிபார்ப்பு மற்றும் ஒப்பந்தங்கள் ஆகியவற்றை சம்பந்தப்பட்ட தரப்பினர் தனித்தனியாகச் சரிபார்த்து உறுதிப்படுத்த வேண்டும்.',
+      brokerCommissionTitle: 'நிலம் வாங்குதல் / விற்பனைக்கான புரோக்கர் கமிஷன்:',
+      brokerCommissionText: 'SPP Nestora உடன் தொடர்புடைய புரோக்கர் மூலம் நிலம் வாங்குதல் அல்லது விற்பனை செய்தால், பொருந்தக்கூடிய புரோக்கர் கமிஷன் வசூலிக்கப்படலாம். கமிஷன் தொகை அல்லது சதவீதம், யார் செலுத்த வேண்டும் மற்றும் பொருந்தும் நிபந்தனைகள் ஆகியவை பரிவர்த்தனைக்கு முன்பே சம்பந்தப்பட்ட தரப்பினருக்கு தெளிவாகத் தெரிவிக்கப்பட்டு ஒப்புக்கொள்ளப்பட வேண்டும்.',
+      listingFeeTitle: 'சொத்து பட்டியலிடும் கட்டணம்:',
+      listingFeeText: 'பொருந்தக்கூடிய சொத்து பட்டியலிடும் கட்டணம், பட்டியலைச் சமர்ப்பிப்பதற்கு முன்பே தனியாகக் காட்டப்படும்.',
+      platformVisitsTitle: 'தளத்தின் மூலம் ஒருங்கிணைக்கப்படும் பார்வையிடுதல்:',
+      platformVisitsText: 'சொத்தை நேரில் பார்வையிடுவதற்கான ஏற்பாடுகள் SPP Nestora நிர்வாக மையத்தின் மூலம் ஒருங்கிணைக்கப்படும்.',
+      privacyTitle: 'தனியுரிமை:',
+      privacyText: 'வாடிக்கையாளர் மற்றும் டீலரின் தொடர்பு விவரங்கள் பாதுகாக்கப்படும். அனுமதிக்கப்பட்ட ஒருங்கிணைப்புக்குத் தேவையான அளவில் மட்டுமே அவை பகிரப்படும்.',
+      agreeCheckbox: 'மேலே உள்ள விதிமுறைகளை படித்து முழுமையாக ஒப்புக்கொள்கிறேன்.',
       acceptBtn: 'ஏற்றுக்கொண்டு தொடரவும்',
+      content: `இந்த தளத்தின் மூலம் சொத்து உரிமையாளர்கள் / டீலர்கள் மற்றும் வாடிக்கையாளர்களுக்கு இடையே தொடர்பு ஏற்படுத்தும் சேவை வழங்கப்படுகிறது. சொத்தின் உரிமை, சொத்து ஆவணங்கள், சட்டப்பூர்வ சரிபார்ப்பு மற்றும் ஒப்பந்தங்கள் ஆகியவற்றை சம்பந்தப்பட்ட தரப்பினர் தனித்தனியாகச் சரிபார்த்து உறுதிப்படுத்த வேண்டும்.\n\nநிலம் வாங்குதல் / விற்பனைக்கான புரோக்கர் கமிஷன்: SPP Nestora உடன் தொடர்புடைய புரோக்கர் மூலம் நிலம் வாங்குதல் அல்லது விற்பனை செய்தால், பொருந்தக்கூடிய புரோக்கர் கமிஷன் வசூலிக்கப்படலாம். கமிஷன் தொகை அல்லது சதவீதம், யார் செலுத்த வேண்டும் மற்றும் பொருந்தும் நிபந்தனைகள் ஆகியவை பரிவர்த்தனைக்கு முன்பே சம்பந்தப்பட்ட தரப்பினருக்கு தெளிவாகத் தெரிவிக்கப்பட்டு ஒப்புக்கொள்ளப்பட வேண்டும்.\n\nசொத்து பட்டியலிடும் கட்டணம்: பொருந்தக்கூடிய சொத்து பட்டியலிடும் கட்டணம், பட்டியலைச் சமர்ப்பிப்பதற்கு முன்பே தனியாகக் காட்டப்படும்.\n\nதளத்தின் மூலம் ஒருங்கிணைக்கப்படும் பார்வையிடுதல்: சொத்தை நேரில் பார்வையிடுவதற்கான ஏற்பாடுகள் SPP Nestora நிர்வாக மையத்தின் மூலம் ஒருங்கிணைக்கப்படும்.\n\nதனியுரிமை: வாடிக்கையாளர் மற்றும் டீலரின் தொடர்பு விவரங்கள் பாதுகாக்கப்படும். அனுமதிக்கப்பட்ட ஒருங்கிணைப்புக்குத் தேவையான அளவில் மட்டுமே அவை பகிரப்படும்.`,
     },
     hero: {
       badge: '🌟 தமிழ்நாட்டின் நம்பகமான ரியல் எஸ்டேட் தளம்',
@@ -698,7 +731,7 @@ export const translations: Record<'en' | 'ta', TranslationDict> = {
       uploadVideo: 'சொத்து வீடியோ (கோப்பு அல்லது யூடியூப்/டிரைவ் இணைப்பு)',
       reviewTitle: 'சமர்ப்பிக்கும் முன் சொத்து விவரங்களை சரிபார்க்கவும்',
       listingFeeTitle: 'சொத்து பதிவு கட்டணம் — ₹10',
-      listingFeeDesc: 'ஒவ்வொரு டீலர் சொத்து பதிவிற்கும் ₹10 சிறிய பதிவு கட்டணம் பொருந்தும். இது கமிஷன் அல்ல. நிர்வாகியின் ஒப்புதலுக்குப் பிறகு உங்கள் சொத்து வெளியிடப்படும்.',
+      listingFeeDesc: 'ஒவ்வொரு டீலர் சொத்து பதிவிற்கும் ₹10 சிறிய பதிவு கட்டணம் பொருந்தும். இது தனியான பட்டியல் கட்டணம் ஆகும். நிர்வாகியின் ஒப்புதலுக்குப் பிறகு உங்கள் சொத்து வெளியிடப்படும்.',
       payAndSubmit: '₹10 செலுத்தி சொத்தை சமர்ப்பிக்கவும்',
       prevStep: 'முந்தைய படி',
       nextStep: 'அடுத்த படிக்கு செல்க',

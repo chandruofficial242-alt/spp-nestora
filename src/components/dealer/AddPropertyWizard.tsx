@@ -944,7 +944,7 @@ export const AddPropertyWizard: React.FC = () => {
                 <span>Official SPP Nestora Listing Policy</span>
               </div>
               <p className="leading-relaxed">
-                ₹10 Property Listing Fee is applicable for each property listing. No mandatory transaction commission is charged by SPP Nestora.
+                ₹10 Property Listing Fee is applicable for each property listing. Broker commission for land purchase or sale facilitated through an associated broker may apply as agreed between concerned parties.
               </p>
             </div>
           </div>

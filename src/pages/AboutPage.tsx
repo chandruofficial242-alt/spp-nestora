@@ -52,16 +52,16 @@ export const AboutPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Zero Commission & Independent Legal Verification Disclaimer */}
+      {/* Broker Commission & Independent Legal Verification Disclaimer */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
         <div className="bg-emerald-50/70 border border-emerald-200 rounded-3xl p-6 sm:p-8 space-y-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold">
             ₹
           </div>
-          <h3 className="text-lg font-bold text-emerald-950">Zero Mandatory Commission</h3>
+          <h3 className="text-lg font-bold text-emerald-950">Broker Commission & Listing Fee</h3>
           <p className="text-xs sm:text-sm text-emerald-900/80 leading-relaxed">
-            SPP Nestora does NOT charge mandatory percentage-based deal commissions. Authorized dealers pay only a nominal flat ₹10 property listing fee.
+            For land purchase or sale transactions facilitated through an associated broker, applicable broker commission may apply as agreed between the concerned parties. A nominal ₹10 property listing fee is displayed separately prior to listing submission.
           </p>
         </div>
 

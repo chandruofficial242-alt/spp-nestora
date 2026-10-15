@@ -21,11 +21,8 @@ export const RegisterPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   // Dealer specific fields
-  const [businessName, setBusinessName] = useState('');
   const [district, setDistrict] = useState('Chennai');
   const [city, setCity] = useState('Chennai');
-  const [address, setAddress] = useState('');
-  const [dealerType, setDealerType] = useState<'individual' | 'agency' | 'builder' | 'promoter'>('agency');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,11 +42,8 @@ export const RegisterPage: React.FC = () => {
       email,
       phone,
       role,
-      businessName: role === 'dealer' ? businessName : undefined,
       district: role === 'dealer' ? district : undefined,
-      city: role === 'dealer' ? city : undefined,
-      address: role === 'dealer' ? address : undefined,
-      dealerType: role === 'dealer' ? dealerType : undefined
+      city: role === 'dealer' ? city : undefined
     }, password);
 
     if (res.success) {
@@ -176,68 +170,23 @@ export const RegisterPage: React.FC = () => {
 
             {/* Dealer Specific Fields */}
             {role === 'dealer' && (
-              <>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    {t.auth.businessName} *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
-                    placeholder="e.g. Kovai Premier Realties & Promoters"
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    {t.auth.district}
-                  </label>
-                  <select
-                    value={district}
-                    onChange={(e) => {
-                      setDistrict(e.target.value);
-                      setCity(e.target.value);
-                    }}
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl bg-white outline-hidden font-medium"
-                  >
-                    {TN_DISTRICTS.map((d: string) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    {t.auth.dealerType}
-                  </label>
-                  <select
-                    value={dealerType}
-                    onChange={(e) => setDealerType(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl bg-white outline-hidden"
-                  >
-                    <option value="agency">Real Estate Agency</option>
-                    <option value="individual">Individual Property Owner</option>
-                    <option value="builder">Builder / Developer</option>
-                    <option value="promoter">Layout Promoter</option>
-                  </select>
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    {t.auth.address}
-                  </label>
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Office / Physical address in Tamil Nadu"
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-hidden"
-                  />
-                </div>
-              </>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  {t.auth.district}
+                </label>
+                <select
+                  value={district}
+                  onChange={(e) => {
+                    setDistrict(e.target.value);
+                    setCity(e.target.value);
+                  }}
+                  className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl bg-white outline-hidden font-medium"
+                >
+                  {TN_DISTRICTS.map((d: string) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
             )}
 
             <div>
