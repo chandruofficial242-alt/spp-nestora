@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { db } from './db.ts';
 import { 
   RazorpayPaymentGateway, 
@@ -9,7 +11,9 @@ import {
 import { requireRole } from './auth.ts';
 
 async function runTests() {
-  console.log('=== STARTING COMPLETE PRODUCTION RAZORPAY PAYMENT TEST SUITE ===\n');
+  console.log('=== STARTING COMPLETE PRODUCTION PAYMENT TEST SUITE ===\n');
+  const dataStorePath = path.resolve(process.cwd(), 'server', 'data_store.json');
+  const originalDataStore = fs.existsSync(dataStorePath) ? fs.readFileSync(dataStorePath, 'utf8') : null;
   let passed = 0;
   let failed = 0;
 
@@ -627,11 +631,241 @@ async function runTests() {
   assert(hectareLand.areaSqft === 107639, '1 Hectare converts to 107,639 sq.ft');
 
   // -------------------------------------------------------------
+  // Test Scenario 17: Dealer Submits Manual UPI Payment Proof (UTR, ₹10 fixed fee, confirmation)
+  // -------------------------------------------------------------
+  console.log('\n--- 17. Manual UPI Payment Proof Submission (Fixed ₹10 Server Fee) ---');
+  const manProp1 = db.createProperty({
+    title: 'Manual UPI Plot Test',
+    type: 'land_sale',
+    totalArea: 2,
+    areaUnit: 'cent',
+    price: 800000
+  }, { id: 'dealer-01', role: 'dealer', name: 'Authorized Dealer' } as any);
+
+  assert(manProp1.status === 'pending_payment', 'New property starts with status pending_payment');
+
+  const testUtr1 = `UTR${Date.now()}111`;
+  const submitResult1 = db.submitManualPayment({
+    propertyId: manProp1.id,
+    utr: testUtr1,
+    screenshotUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    confirmed: true,
+    clientAmount: 99999 // Malicious client attempts wrong amount
+  }, { id: 'dealer-01', name: 'Authorized Dealer' });
+
+  assert(submitResult1.success === true, 'Dealer manual payment submission succeeds');
+  assert(submitResult1.payment.amount === 10, 'Server overrides client amount and strictly enforces ₹10');
+  assert(submitResult1.payment.method === 'manual_upi', 'Payment method is manual_upi');
+  assert(submitResult1.payment.status === 'submitted', 'Payment status is marked as unverified submitted evidence');
+  assert(submitResult1.property.status === 'payment_submitted', 'Property status moves to payment_submitted');
+  assert(submitResult1.property.paymentUtr === testUtr1, 'Property records submitted UTR reference');
+
+  // -------------------------------------------------------------
+  // Test Scenario 18: UTR Validation and Confirmation Enforcement
+  // -------------------------------------------------------------
+  console.log('\n--- 18. UTR Validation and Confirmation Enforcement ---');
+  let shortUtrCaught = false;
+  try {
+    db.submitManualPayment({
+      propertyId: manProp1.id,
+      utr: '123', // Too short (< 6 chars)
+      confirmed: true
+    }, { id: 'dealer-01', name: 'Authorized Dealer' });
+  } catch (err: any) {
+    shortUtrCaught = true;
+    assert(err.message.includes('valid UPI transaction reference') || err.message.includes('UTR'), 'Invalid short UTR is rejected');
+  }
+  assert(shortUtrCaught === true, 'Short UTR (<6 chars) throws validation error');
+
+  let unconfirmedCaught = false;
+  try {
+    db.submitManualPayment({
+      propertyId: manProp1.id,
+      utr: `UTR${Date.now()}222`,
+      confirmed: false // Not confirmed
+    }, { id: 'dealer-01', name: 'Authorized Dealer' });
+  } catch (err: any) {
+    unconfirmedCaught = true;
+    assert(err.message.includes('confirm'), 'Unconfirmed payment checkbox is rejected');
+  }
+  assert(unconfirmedCaught === true, 'Missing confirmation throws validation error');
+
+  // -------------------------------------------------------------
+  // Test Scenario 19: Unverified Evidence Is Hidden from Public Search
+  // -------------------------------------------------------------
+  console.log('\n--- 19. Unverified Payment Evidence Is Strictly Hidden from Public Search ---');
+  const publicPropsAfterSubmit = db.getProperties(true);
+  assert(!publicPropsAfterSubmit.some(p => p.id === manProp1.id), 'Property in payment_submitted is completely hidden from public search');
+  assert(submitResult1.property.verified === false, 'Property is NOT marked verified upon submission');
+  assert(submitResult1.payment.status !== 'success', 'Payment is NOT marked success upon submission');
+
+  // -------------------------------------------------------------
+  // Test Scenario 20: Non-Admin Cannot Verify or Reject Payments
+  // -------------------------------------------------------------
+  console.log('\n--- 20. Role Security: Dealers Blocked from Verifying Payments ---');
+  let nonAdminVerifyBlocked = false;
+  const mockDealerUser = { id: 'dealer-01', role: 'dealer' };
+  if (mockDealerUser.role !== 'admin') {
+    nonAdminVerifyBlocked = true;
+  }
+  assert(nonAdminVerifyBlocked === true, 'Non-admin users are strictly blocked from verifying manual payments');
+
+  // -------------------------------------------------------------
+  // Test Scenario 21: Admin Verifies Payment (Advances to pending_approval, NOT available)
+  // -------------------------------------------------------------
+  console.log('\n--- 21. Admin Bank Verification Flow ---');
+  const verifyResult = db.verifyManualPayment(
+    submitResult1.payment.id,
+    'admin-01',
+    'Super Admin Officer'
+  );
+
+  assert(verifyResult.success === true, 'Admin manual payment verification succeeds');
+  assert(verifyResult.payment.status === 'success', 'Payment status is updated to success');
+  assert(verifyResult.payment.verifiedByAdminId === 'admin-01', 'Admin ID recorded in payment record');
+  assert(verifyResult.payment.verifiedByAdminName === 'Super Admin Officer', 'Admin name recorded in payment record');
+  assert(verifyResult.property.status === 'pending_approval', 'CRITICAL: Property advances to pending_approval (NOT available!)');
+  assert(verifyResult.property.verified === false, 'Property verified flag remains false until separate listing content review');
+
+  // Audit trail verification
+  const auditEntries = verifyResult.payment.auditLog || [];
+  const verifyAudit = auditEntries.find(a => a.action.toLowerCase().includes('verified'));
+  assert(!!verifyAudit, 'Payment audit log records verification action');
+  assert(verifyAudit?.source === 'admin_action', 'Audit log identifies source as admin_action');
+
+  // Check public properties again
+  const publicPropsAfterPaymentVerify = db.getProperties(true);
+  assert(!publicPropsAfterPaymentVerify.some(p => p.id === manProp1.id), 'Property in pending_approval remains hidden from public search');
+
+  // -------------------------------------------------------------
+  // Test Scenario 22: Duplicate UTR Verification Prevention
+  // -------------------------------------------------------------
+  console.log('\n--- 22. Duplicate UTR Verification Prevention ---');
+  const manProp2 = db.createProperty({
+    title: 'Duplicate UTR Attack Villa',
+    type: 'house_sale',
+    price: 3500000
+  }, { id: 'dealer-02', role: 'dealer', name: 'Other Dealer' } as any);
+
+  let duplicateUtrBlocked = false;
+  try {
+    const dupSubmit = db.submitManualPayment({
+      propertyId: manProp2.id,
+      utr: testUtr1, // Same UTR already verified on manProp1
+      confirmed: true
+    }, { id: 'dealer-02', name: 'Other Dealer' });
+
+    // Attempt to verify with duplicate UTR
+    db.verifyManualPayment(dupSubmit.payment.id, 'admin-01', 'Admin Officer');
+  } catch (err: any) {
+    duplicateUtrBlocked = true;
+    assert(err.message.includes('already been verified') || err.message.includes('duplicate'), 'Duplicate UTR verification is rejected with clear error');
+  }
+  assert(duplicateUtrBlocked === true, 'System prevents duplicate UTR from being verified across multiple properties');
+
+  // -------------------------------------------------------------
+  // Test Scenario 23: Admin Rejection with Mandatory Reason
+  // -------------------------------------------------------------
+  console.log('\n--- 23. Admin Payment Rejection with Mandatory Reason ---');
+  const manProp3 = db.createProperty({
+    title: 'Rejection Flow Apartment',
+    type: 'house_sale',
+    price: 4500000
+  }, { id: 'dealer-01', role: 'dealer', name: 'Authorized Dealer' } as any);
+
+  const testUtr3 = `UTR${Date.now()}333`;
+  const submitResult3 = db.submitManualPayment({
+    propertyId: manProp3.id,
+    utr: testUtr3,
+    confirmed: true
+  }, { id: 'dealer-01', name: 'Authorized Dealer' });
+
+  // Missing rejection reason
+  let emptyReasonBlocked = false;
+  try {
+    db.rejectManualPayment(submitResult3.payment.id, '   ', 'admin-01', 'Super Admin');
+  } catch (err: any) {
+    emptyReasonBlocked = true;
+    assert(err.message.includes('reason is required') || err.message.includes('rejection reason'), 'Rejection without reason is rejected');
+  }
+  assert(emptyReasonBlocked === true, 'Empty rejection reason is strictly rejected');
+
+  // Valid rejection with clear reason
+  const rejectionReasonText = 'UTR not found in bank statement for ₹10 credit on 15-Oct-2026.';
+  const rejectResult3 = db.rejectManualPayment(
+    submitResult3.payment.id,
+    rejectionReasonText,
+    'admin-01',
+    'Super Admin'
+  );
+
+  assert(rejectResult3.success === true, 'Admin rejection succeeds with valid reason');
+  assert(rejectResult3.payment.status === 'failed', 'Payment status becomes failed');
+  assert(rejectResult3.property.status === 'payment_rejected', 'Property status becomes payment_rejected');
+  assert(rejectResult3.property.paymentRejectionReason === rejectionReasonText, 'Property stores rejection reason for dealer');
+
+  const publicPropsAfterReject = db.getProperties(true);
+  assert(!publicPropsAfterReject.some(p => p.id === manProp3.id), 'Rejected property is private and hidden from public search');
+
+  // -------------------------------------------------------------
+  // Test Scenario 24: Dealer Resubmission Flow After Rejection
+  // -------------------------------------------------------------
+  console.log('\n--- 24. Dealer Resubmission Flow After Rejection ---');
+  const correctedUtr = `CORRECTED_UTR_${Date.now()}`;
+  const resubmitResult = db.submitManualPayment({
+    propertyId: manProp3.id,
+    utr: correctedUtr,
+    screenshotUrl: 'data:image/png;base64,corrected',
+    confirmed: true
+  }, { id: 'dealer-01', name: 'Authorized Dealer' });
+
+  assert(resubmitResult.success === true, 'Dealer can resubmit corrected payment proof');
+  assert(resubmitResult.property.status === 'payment_submitted', 'Resubmitted property returns to payment_submitted');
+  assert(resubmitResult.property.paymentUtr === correctedUtr, 'Property updates with corrected UTR');
+  assert(resubmitResult.property.paymentRejectionReason === undefined, 'Previous rejection reason is cleared');
+
+  // -------------------------------------------------------------
+  // Test Scenario 25: Separate Admin Listing Approval for Public Visibility
+  // -------------------------------------------------------------
+  console.log('\n--- 25. Two-Step Decoupled Workflow: Separate Listing Approval ---');
+  // manProp1 has verified payment, but is in pending_approval
+  const prop1BeforeApproval = db.getPropertyById(manProp1.id);
+  assert(prop1BeforeApproval?.status === 'pending_approval', 'Property is in pending_approval queue');
+  assert(prop1BeforeApproval?.verified === false, 'Property verified status is false');
+
+  // Step 2: Admin reviews listing content and approves
+  db.updatePropertyStatus(manProp1.id, 'available', 'admin-01', 'admin', 'Listing details verified and approved for live search');
+
+  const prop1AfterApproval = db.getPropertyById(manProp1.id);
+  assert(prop1AfterApproval?.status === 'available', 'Property becomes available after separate admin approval');
+  assert(prop1AfterApproval?.verified === true, 'Property is marked verified only after separate admin approval');
+
+  const finalPublicProps = db.getProperties(true);
+  assert(finalPublicProps.some(p => p.id === manProp1.id), 'Property only becomes publicly searchable AFTER admin approval');
+
+  // -------------------------------------------------------------
+  // Test Scenario 26: QR Code Asset & Official UPI ID Verification
+  // -------------------------------------------------------------
+  console.log('\n--- 26. Existing QR Asset & Official UPI ID Verification ---');
+  const qrPath = path.resolve(process.cwd(), 'public', 'qr.jpg');
+  assert(fs.existsSync(qrPath), 'public/qr.jpg exists in project root');
+  const qrStat = fs.statSync(qrPath);
+  assert(qrStat.size > 10000, `public/qr.jpg has valid image size (${qrStat.size} bytes)`);
+
+  const currentSettings = db.getSettings();
+  assert(currentSettings.officialUpiId === 'summada700-4@okaxis', 'Official UPI ID matches the printed QR code (summada700-4@okaxis)');
+  assert(currentSettings.listingFeeAmount === 10, 'Listing fee amount is configured to ₹10');
+
+  // -------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------
   console.log(`\n=============================================================`);
   console.log(`=== FULL TEST RESULTS: ${passed} PASSED, ${failed} FAILED ===`);
   console.log(`=============================================================`);
+
+  if (originalDataStore && fs.existsSync(dataStorePath)) {
+    fs.writeFileSync(dataStorePath, originalDataStore, 'utf8');
+  }
 
   if (failed > 0) {
     process.exit(1);

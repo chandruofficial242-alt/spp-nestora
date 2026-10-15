@@ -89,6 +89,7 @@ class RelationalStore {
         ? `+91 ${(process.env.OFFICIAL_WHATSAPP || process.env.OFFICIAL_WHATSAP || '').replace(/^\+?91/, '').trim()}` 
         : INITIAL_SETTINGS.officialWhatsAppDisplay,
       officialEmail: process.env.OFFICIAL_EMAIL || INITIAL_SETTINGS.officialEmail,
+      officialUpiId: process.env.OFFICIAL_UPI_ID || INITIAL_SETTINGS.officialUpiId || 'summada700-4@okaxis',
       listingFeeAmount: process.env.DEFAULT_LISTING_FEE ? Number(process.env.DEFAULT_LISTING_FEE) : INITIAL_SETTINGS.listingFeeAmount
     };
 
@@ -105,7 +106,8 @@ class RelationalStore {
           officialPhoneDisplay: defaultSettings.officialPhoneDisplay,
           officialWhatsApp: defaultSettings.officialWhatsApp,
           officialWhatsAppDisplay: defaultSettings.officialWhatsAppDisplay,
-          officialEmail: defaultSettings.officialEmail
+          officialEmail: defaultSettings.officialEmail,
+          officialUpiId: defaultSettings.officialUpiId
         };
         return parsed;
       }
@@ -288,6 +290,11 @@ class RelationalStore {
         ALTER TABLE payments ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE;
         ALTER TABLE payments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
         ALTER TABLE payments ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS utr VARCHAR(100);
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS screenshot_url TEXT;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS verified_by_admin_id VARCHAR(64);
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS verified_by_admin_name VARCHAR(255);
         CREATE TABLE IF NOT EXISTS webhook_events (
           event_id VARCHAR(100) PRIMARY KEY,
           event_type VARCHAR(64) NOT NULL,
@@ -297,6 +304,7 @@ class RelationalStore {
         CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
         CREATE INDEX IF NOT EXISTS idx_payments_property_id ON payments(property_id);
         CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+        CREATE INDEX IF NOT EXISTS idx_payments_utr ON payments(utr);
 
         -- Safe column migrations for properties table
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS land_type VARCHAR(100);
@@ -322,6 +330,11 @@ class RelationalStore {
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS electricity_supply VARCHAR(100);
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS landmark VARCHAR(255);
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS pincode VARCHAR(32);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS payment_utr VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS payment_screenshot_url TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS payment_submitted_at TIMESTAMP WITH TIME ZONE;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS payment_verified_at TIMESTAMP WITH TIME ZONE;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS payment_rejection_reason TEXT;
       `);
 
       // Sync Users between PostgreSQL and memory
@@ -1005,6 +1018,380 @@ class RelationalStore {
     }
 
     return payment;
+  }
+
+  // --- MANUAL UPI QR PAYMENT METHODS ---
+  public isUtrDuplicateVerified(utr: string, excludePropertyId?: string): boolean {
+    if (!utr || !utr.trim()) return false;
+    const normalized = utr.trim().toLowerCase();
+    return this.data.payments.some(p => 
+      p.status === 'success' &&
+      p.utr &&
+      p.utr.trim().toLowerCase() === normalized &&
+      (!excludePropertyId || p.propertyId !== excludePropertyId)
+    );
+  }
+
+  public submitManualPayment(
+    params: {
+      propertyId: string;
+      dealerId?: string;
+      dealerName?: string;
+      utr: string;
+      screenshotUrl?: string;
+      confirmed?: boolean;
+      clientAmount?: number;
+    },
+    userArg?: { id: string; name?: string }
+  ): { success: boolean; payment: Payment; property: Property } {
+    const finalDealerId = params.dealerId || userArg?.id || 'dealer-01';
+    const finalDealerName = params.dealerName || userArg?.name || 'Dealer';
+
+    const prop = this.data.properties.find(p => p.id === params.propertyId);
+    if (!prop) {
+      throw new Error('Property not found');
+    }
+
+    if (!params.utr || !params.utr.trim()) {
+      throw new Error('UPI transaction reference (UTR) is required');
+    }
+
+    if (!params.confirmed) {
+      throw new Error('You must confirm that the payment was transferred to the official UPI ID');
+    }
+
+    const trimmedUtr = params.utr.trim();
+    if (trimmedUtr.length < 6 || trimmedUtr.length > 30) {
+      throw new Error('Please enter a valid UPI transaction reference / UTR (6 to 30 characters)');
+    }
+
+    // Check if this UTR has already been verified for another property
+    if (this.isUtrDuplicateVerified(trimmedUtr, params.propertyId)) {
+      throw new Error('This UPI transaction reference (UTR) has already been verified for another property. Duplicate submissions are not allowed.');
+    }
+
+    const now = new Date().toISOString();
+    // Authoritative fixed listing fee from server settings
+    const fixedAmount = this.data.settings.listingFeeAmount || 10;
+
+    let payment = this.data.payments.find(p => p.propertyId === params.propertyId);
+    const auditEntry: PaymentAuditEntry = {
+      action: `Manual UPI payment submitted with UTR: ${trimmedUtr}`,
+      timestamp: now,
+      source: 'dealer_submission',
+      details: params.screenshotUrl ? 'Payment screenshot provided' : 'No screenshot attached'
+    };
+
+    if (payment) {
+      payment.amount = fixedAmount;
+      payment.method = 'manual_upi';
+      payment.status = 'submitted';
+      payment.utr = trimmedUtr;
+      payment.transactionRef = trimmedUtr;
+      if (params.screenshotUrl) {
+        payment.screenshotUrl = params.screenshotUrl;
+      }
+      payment.rejectionReason = undefined;
+      payment.updatedAt = now;
+      if (!payment.auditLog) payment.auditLog = [];
+      payment.auditLog.push(auditEntry);
+    } else {
+      const receiptNumber = `SPP-REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      payment = {
+        id: `pay-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+        receiptNumber,
+        dealerId: finalDealerId,
+        dealerName: finalDealerName || prop.dealerName || 'Dealer',
+        propertyId: prop.id,
+        propertyTitle: prop.title,
+        amount: fixedAmount,
+        currency: 'INR',
+        purpose: `Property Listing Fee — ₹${fixedAmount}`,
+        method: 'manual_upi',
+        status: 'submitted',
+        transactionRef: trimmedUtr,
+        utr: trimmedUtr,
+        screenshotUrl: params.screenshotUrl,
+        createdAt: now,
+        updatedAt: now,
+        auditLog: [auditEntry]
+      };
+      this.data.payments.unshift(payment);
+    }
+
+    // Update Property state
+    const previousStatus = prop.status;
+    prop.status = 'payment_submitted';
+    prop.paymentUtr = trimmedUtr;
+    if (params.screenshotUrl) {
+      prop.paymentScreenshotUrl = params.screenshotUrl;
+    }
+    prop.paymentSubmittedAt = now;
+    prop.paymentRejectionReason = undefined;
+    prop.updatedAt = now;
+
+    // Log status history
+    this.data.status_history.push({
+      id: `hist-${Date.now()}`,
+      propertyId: prop.id,
+      propertyCode: prop.propertyCode,
+      previousStatus,
+      newStatus: 'payment_submitted',
+      changedByUserId: finalDealerId,
+      changedByRole: 'dealer',
+      reason: `Manual UPI payment submitted with UTR: ${trimmedUtr}`,
+      timestamp: now
+    });
+
+    this.saveToFile(this.data);
+
+    // Sync to PostgreSQL if connected
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `INSERT INTO payments (id, receipt_number, dealer_id, dealer_name, property_id, property_title, amount, currency, method, status, transaction_ref, utr, screenshot_url, updated_at, audit_log)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           transaction_ref = EXCLUDED.transaction_ref,
+           utr = EXCLUDED.utr,
+           screenshot_url = EXCLUDED.screenshot_url,
+           updated_at = EXCLUDED.updated_at,
+           audit_log = EXCLUDED.audit_log`,
+        [
+          payment.id,
+          payment.receiptNumber,
+          payment.dealerId,
+          payment.dealerName,
+          payment.propertyId,
+          payment.propertyTitle,
+          payment.amount,
+          payment.currency,
+          payment.method,
+          payment.status,
+          payment.transactionRef,
+          payment.utr || null,
+          payment.screenshotUrl || null,
+          payment.updatedAt,
+          JSON.stringify(payment.auditLog || [])
+        ]
+      ).catch(e => console.warn('[DB Postgres Sync Error] manual payment submit:', e.message));
+
+      this.pool.query(
+        `UPDATE properties SET status = $1, payment_utr = $2, payment_screenshot_url = $3, payment_submitted_at = $4, data = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6`,
+        [prop.status, prop.paymentUtr, prop.paymentScreenshotUrl || null, prop.paymentSubmittedAt, JSON.stringify(prop), prop.id]
+      ).catch(e => console.warn('[DB Postgres Sync Error] property payment_submitted update:', e.message));
+    }
+
+    return { success: true, payment, property: prop };
+  }
+
+  public verifyManualPayment(
+    paramsOrId: {
+      paymentIdOrPropertyId: string;
+      adminId: string;
+      adminName: string;
+    } | string,
+    adminIdArg?: string,
+    adminNameArg?: string
+  ): { success: boolean; payment: Payment; property: Property } {
+    const paymentIdOrPropertyId = typeof paramsOrId === 'string' ? paramsOrId : paramsOrId.paymentIdOrPropertyId;
+    const adminId = typeof paramsOrId === 'string' ? (adminIdArg || 'admin-01') : paramsOrId.adminId;
+    const adminName = typeof paramsOrId === 'string' ? (adminNameArg || 'Super Admin') : paramsOrId.adminName;
+
+    const payment = this.data.payments.find(p => p.id === paymentIdOrPropertyId || p.propertyId === paymentIdOrPropertyId);
+    if (!payment) {
+      throw new Error('Payment record not found');
+    }
+
+    const prop = this.data.properties.find(p => p.id === payment.propertyId);
+    if (!prop) {
+      throw new Error('Associated property not found');
+    }
+
+    if (!payment.utr || !payment.utr.trim()) {
+      throw new Error('Cannot verify payment: no UTR transaction reference was submitted.');
+    }
+
+    // Check duplicate UTR verified for other properties
+    if (this.isUtrDuplicateVerified(payment.utr, payment.propertyId)) {
+      throw new Error(`Cannot verify: UTR ${payment.utr} has already been verified for another property.`);
+    }
+
+    const now = new Date().toISOString();
+    const auditEntry: PaymentAuditEntry = {
+      action: 'Manual UPI payment verified by Admin',
+      timestamp: now,
+      adminId,
+      adminName,
+      details: `Verified ₹${payment.amount} against bank records (UTR: ${payment.utr})`,
+      source: 'admin_action'
+    };
+
+    payment.status = 'success';
+    payment.verificationMethod = 'manual_upi_verification';
+    payment.verifiedAt = now;
+    payment.verifiedByAdminId = adminId;
+    payment.verifiedByAdminName = adminName;
+    payment.updatedAt = now;
+    payment.rejectionReason = undefined;
+    if (!payment.auditLog) payment.auditLog = [];
+    payment.auditLog.push(auditEntry);
+
+    // Update Property state: Moves to pending_approval (NOT available!)
+    const previousStatus = prop.status;
+    prop.status = 'pending_approval';
+    prop.paymentVerifiedAt = now;
+    prop.paymentRejectionReason = undefined;
+    prop.updatedAt = now;
+
+    // Log status history
+    this.data.status_history.push({
+      id: `hist-${Date.now()}`,
+      propertyId: prop.id,
+      propertyCode: prop.propertyCode,
+      previousStatus,
+      newStatus: 'pending_approval',
+      changedByUserId: adminId,
+      changedByRole: 'admin',
+      reason: `Listing fee payment verified by admin (${adminName}). Moved to pending listing approval queue.`,
+      timestamp: now
+    });
+
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `UPDATE payments SET
+           status = $1,
+           verification_method = $2,
+           verified_at = $3,
+           verified_by_admin_id = $4,
+           verified_by_admin_name = $5,
+           updated_at = $6,
+           audit_log = $7
+         WHERE id = $8`,
+        [
+          payment.status,
+          payment.verificationMethod,
+          payment.verifiedAt,
+          payment.verifiedByAdminId,
+          payment.verifiedByAdminName,
+          payment.updatedAt,
+          JSON.stringify(payment.auditLog || []),
+          payment.id
+        ]
+      ).catch(e => console.warn('[DB Postgres Sync Error] verify manual payment:', e.message));
+
+      this.pool.query(
+        `UPDATE properties SET status = $1, payment_verified_at = $2, data = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4`,
+        [prop.status, prop.paymentVerifiedAt, JSON.stringify(prop), prop.id]
+      ).catch(e => console.warn('[DB Postgres Sync Error] property pending_approval update:', e.message));
+    }
+
+    return { success: true, payment, property: prop };
+  }
+
+  public rejectManualPayment(
+    paramsOrId: {
+      paymentIdOrPropertyId: string;
+      adminId: string;
+      adminName: string;
+      reason: string;
+    } | string,
+    reasonArg?: string,
+    adminIdArg?: string,
+    adminNameArg?: string
+  ): { success: boolean; payment: Payment; property: Property } {
+    const paymentIdOrPropertyId = typeof paramsOrId === 'string' ? paramsOrId : paramsOrId.paymentIdOrPropertyId;
+    const rawReason = typeof paramsOrId === 'string' ? (reasonArg || '') : paramsOrId.reason;
+    const adminId = typeof paramsOrId === 'string' ? (adminIdArg || 'admin-01') : paramsOrId.adminId;
+    const adminName = typeof paramsOrId === 'string' ? (adminNameArg || 'Super Admin') : paramsOrId.adminName;
+
+    if (!rawReason || !rawReason.trim()) {
+      throw new Error('A specific rejection reason is required to reject a payment submission.');
+    }
+
+    const trimmedReason = rawReason.trim();
+    const payment = this.data.payments.find(p => p.id === paymentIdOrPropertyId || p.propertyId === paymentIdOrPropertyId);
+    if (!payment) {
+      throw new Error('Payment record not found');
+    }
+
+    const prop = this.data.properties.find(p => p.id === payment.propertyId);
+    if (!prop) {
+      throw new Error('Associated property not found');
+    }
+
+    const now = new Date().toISOString();
+    const auditEntry: PaymentAuditEntry = {
+      action: 'Manual UPI payment rejected by Admin',
+      timestamp: now,
+      adminId,
+      adminName,
+      reason: trimmedReason,
+      source: 'admin_action'
+    };
+
+    payment.status = 'failed';
+    payment.rejectionReason = trimmedReason;
+    payment.updatedAt = now;
+    if (!payment.auditLog) payment.auditLog = [];
+    payment.auditLog.push(auditEntry);
+
+    // Update Property state: Moves to payment_rejected (dealer can resubmit)
+    const previousStatus = prop.status;
+    prop.status = 'payment_rejected';
+    prop.paymentRejectionReason = trimmedReason;
+    prop.rejectionReason = trimmedReason;
+    prop.updatedAt = now;
+
+    // Log status history
+    this.data.status_history.push({
+      id: `hist-${Date.now()}`,
+      propertyId: prop.id,
+      propertyCode: prop.propertyCode,
+      previousStatus,
+      newStatus: 'payment_rejected',
+      changedByUserId: adminId,
+      changedByRole: 'admin',
+      reason: trimmedReason,
+      timestamp: now
+    });
+
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `UPDATE payments SET
+           status = $1,
+           rejection_reason = $2,
+           updated_at = $3,
+           audit_log = $4
+         WHERE id = $5`,
+        [
+          payment.status,
+          payment.rejectionReason,
+          payment.updatedAt,
+          JSON.stringify(payment.auditLog || []),
+          payment.id
+        ]
+      ).catch(e => console.warn('[DB Postgres Sync Error] reject manual payment:', e.message));
+
+      this.pool.query(
+        `UPDATE properties SET status = $1, payment_rejection_reason = $2, data = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4`,
+        [prop.status, prop.paymentRejectionReason, JSON.stringify(prop), prop.id]
+      ).catch(e => console.warn('[DB Postgres Sync Error] property payment_rejected update:', e.message));
+    }
+
+    return { success: true, payment, property: prop };
+  }
+
+  public getManualPayments(): Payment[] {
+    return this.data.payments.filter(p => 
+      p.method === 'upi' || 
+      p.utr || 
+      p.verificationMethod === 'manual_upi_verification'
+    );
   }
 
   // --- ENQUIRIES CRM METHODS ---

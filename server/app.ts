@@ -35,12 +35,17 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// 3. Serve static uploads (Disk storage fallback)
+// 3. Serve static uploads (Disk storage fallback) & public assets (qr.jpg)
 const uploadsPath = path.resolve(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsPath)) {
   fs.mkdirSync(uploadsPath, { recursive: true });
 }
 app.use('/uploads', express.static(uploadsPath));
+
+const publicPath = path.resolve(process.cwd(), 'public');
+if (fs.existsSync(publicPath)) {
+  app.use(express.static(publicPath));
+}
 
 // 4. API Routes
 app.use('/api', router);

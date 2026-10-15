@@ -3,7 +3,6 @@ import express from 'express';
 import { db } from './db.ts';
 import { authenticate, requireRole, generateAuthToken, type AuthenticatedRequest } from './auth.ts';
 import { sanitizePropertyForPublic, sanitizePropertiesListForPublic, sanitizeUser } from './sanitizer.ts';
-import { paymentGateway, verifyRazorpayWebhookSignature, handleWebhookPaymentReconciliation, checkOrderStatus } from './paymentService.ts';
 import { emailService, sanitizeRedirectUri, sanitizeClientId } from './emailService.ts';
 import { uploadMiddleware, processUploadedFile } from './uploadService.ts';
 import { createRateLimiter } from './rateLimiter.ts';
@@ -357,128 +356,142 @@ router.delete('/properties/:id', authenticate, (req: AuthenticatedRequest, res) 
 });
 
 // ==========================================
-// 5. ₹10 LISTING FEE PAYMENTS
+// 5. ₹10 MANUAL UPI QR LISTING FEE PAYMENTS
 // ==========================================
 
-router.get('/payments/methods', async (_req, res) => {
+// Manual UPI Payment Submission (Dealer submits UTR + optional screenshot after scanning QR)
+router.post('/payments/submit-manual', paymentLimiter, authenticate, requireRole(['dealer', 'admin']), async (req: AuthenticatedRequest, res) => {
   try {
-    const methods = await paymentGateway.getPaymentMethods();
-    return res.json({
-      success: true,
-      isSandbox: paymentGateway.isSandbox,
-      methods
-    });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Failed to retrieve payment methods' });
-  }
-});
-
-router.post('/payments/create-order', paymentLimiter, authenticate, requireRole(['dealer', 'admin']), async (req: AuthenticatedRequest, res) => {
-  try {
-    const { propertyId, propertyTitle, method } = req.body;
+    const { propertyId, utr, screenshotUrl, confirmed } = req.body;
     const dealer = req.user!;
 
     if (!propertyId) {
-      return res.status(400).json({ error: 'propertyId is required to create a payment order' });
+      return res.status(400).json({ error: 'propertyId is required to submit payment details' });
     }
 
-    // Security check: If property exists in DB, ensure it belongs to the dealer
-    const existingProp = db.getPropertyById(propertyId);
-    if (existingProp && dealer.role !== 'admin' && existingProp.dealerId !== dealer.id) {
-      return res.status(403).json({ error: 'Unauthorized: cannot initiate payment for another dealer\'s property' });
+    if (!utr || typeof utr !== 'string' || !utr.trim()) {
+      return res.status(400).json({ error: 'UPI transaction reference / UTR is required' });
     }
 
-    const order = await paymentGateway.createOrder({
-      dealerId: dealer.id,
-      dealerName: dealer.businessName || dealer.name,
-      propertyId,
-      propertyTitle: propertyTitle || existingProp?.title || 'Property Listing',
-      paymentMethod: method || 'upi'
-    });
-
-    return res.json(order);
-  } catch (err: any) {
-    return res.status(400).json({ error: err.message || 'Failed to initiate listing payment' });
-  }
-});
-
-router.post('/payments/verify', paymentLimiter, authenticate, requireRole(['dealer', 'admin']), async (req: AuthenticatedRequest, res) => {
-  try {
-    const { orderId, paymentId, signature, propertyId, propertyTitle, method } = req.body;
-    const dealer = req.user!;
-
-    if (!propertyId || !orderId) {
-      return res.status(400).json({ error: 'propertyId and orderId are required for payment verification' });
+    const trimmedUtr = utr.trim();
+    if (trimmedUtr.length < 6 || trimmedUtr.length > 30) {
+      return res.status(400).json({ error: 'Please provide a valid UPI transaction reference / UTR (6 to 30 characters)' });
     }
 
-    // Security check: Property must belong to this dealer if it exists in DB
+    if (!confirmed) {
+      return res.status(400).json({ error: 'You must confirm that you have paid exactly ₹10 to the UPI QR' });
+    }
+
     const prop = db.getPropertyById(propertyId);
-    if (prop && dealer.role !== 'admin' && prop.dealerId !== dealer.id) {
-      return res.status(403).json({ error: 'Unauthorized to verify payment for this property' });
+    if (!prop) {
+      return res.status(404).json({ error: 'Property not found' });
     }
 
-    const result = await paymentGateway.verifyPayment({
-      orderId,
-      paymentId: paymentId || `pay_${Date.now()}`,
-      signature,
+    if (dealer.role !== 'admin' && prop.dealerId !== dealer.id) {
+      return res.status(403).json({ error: 'Unauthorized: cannot submit payment for another dealer\'s property' });
+    }
+
+    // Check if this UTR was already verified for another property
+    if (db.isUtrDuplicateVerified(trimmedUtr, propertyId)) {
+      return res.status(400).json({ error: 'This UPI transaction reference (UTR) has already been verified for another property. Duplicate submissions are strictly prohibited.' });
+    }
+
+    const result = db.submitManualPayment({
+      propertyId,
       dealerId: dealer.id,
       dealerName: dealer.businessName || dealer.name,
-      propertyId,
-      propertyTitle: propertyTitle || prop?.title || 'Property Listing',
-      method: method || 'upi'
+      utr: trimmedUtr,
+      screenshotUrl
     });
 
-    // In-app Notification for Admin
+    // Notify Admin of new manual UPI submission
     db.createNotification({
       targetRole: 'admin',
-      title: `₹10 Payment Verified – Receipt #${result.paymentRecord.receiptNumber}`,
-      titleTa: `₹10 கட்டணம் சரிபார்க்கப்பட்டது – ரசீது #${result.paymentRecord.receiptNumber}`,
-      message: `${dealer.name} paid ₹10 via ${result.paymentRecord.method.toUpperCase()} for "${propertyTitle || prop?.title}".`,
-      messageTa: `${dealer.name} ₹10 கட்டணத்தை வெற்றிகரமாக செலுத்தியுள்ளார்.`,
+      title: `Manual UPI Payment Submitted: ₹10 for [${prop.propertyCode}]`,
+      titleTa: `கையேடு UPI கட்டணம் சமர்ப்பிக்கப்பட்டது: ₹10 [${prop.propertyCode}]`,
+      message: `${dealer.name} submitted UTR: ${trimmedUtr} for property "${prop.title}". Please verify against bank statement.`,
+      messageTa: `${dealer.name} ₹10 கட்டண விவரங்களை (UTR: ${trimmedUtr}) சமர்ப்பித்துள்ளார்.`,
       link: '/admin'
     });
 
-    // Email Notification to Admin
-    try {
-      await emailService.sendPaymentVerifiedNotification(result.paymentRecord);
-    } catch (e: any) {
-      console.warn('[Email Service Payment Verified Error]:', e.message || e);
-    }
+    return res.status(200).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to submit manual payment' });
+  }
+});
+
+// Admin Verify Manual UPI Payment (Cross-checked against bank statement)
+router.post('/payments/manual/:id/verify', authenticate, requireRole(['admin']), (req: AuthenticatedRequest, res) => {
+  try {
+    const paymentIdOrPropId = req.params.id as string;
+    const admin = req.user!;
+
+    const result = db.verifyManualPayment({
+      paymentIdOrPropertyId: paymentIdOrPropId,
+      adminId: admin.id,
+      adminName: admin.name
+    });
+
+    // In-app Notification to Dealer
+    db.createNotification({
+      userId: result.property.dealerId,
+      targetRole: 'dealer',
+      title: `₹10 Listing Fee Verified for [${result.property.propertyCode}]`,
+      titleTa: `[${result.property.propertyCode}] க்கான ₹10 கட்டணம் சரிபார்க்கப்பட்டது`,
+      message: `Your ₹10 UPI payment (UTR: ${result.payment.utr}) has been confirmed. The property is now in the listing approval queue.`,
+      messageTa: `உங்கள் ₹10 கட்டணம் சரிபார்க்கப்பட்டது. சொத்து இறுதி ஒப்புதலுக்கு நகர்த்தப்பட்டுள்ளது.`,
+      link: '/dealer'
+    });
 
     return res.json(result);
   } catch (err: any) {
-    return res.status(400).json({ error: err.message || 'Payment verification failed' });
+    return res.status(400).json({ error: err.message || 'Failed to verify manual payment' });
   }
 });
 
-// Razorpay Webhook Endpoint for automated server reconciliation with RAW BODY verification
-router.post('/payments/webhook', (req, res) => {
-  const signature = req.headers['x-razorpay-signature'] as string;
-  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || '';
+// Admin Reject Manual UPI Payment (With required reason)
+router.post('/payments/manual/:id/reject', authenticate, requireRole(['admin']), (req: AuthenticatedRequest, res) => {
+  try {
+    const paymentIdOrPropId = req.params.id as string;
+    const { reason } = req.body;
+    const admin = req.user!;
 
-  if (webhookSecret) {
-    if (!signature) {
-      return res.status(400).json({ error: 'Missing x-razorpay-signature header' });
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+      return res.status(400).json({ error: 'A rejection reason is required' });
     }
-    // Use rawBody buffer captured in express.json({ verify: ... })
-    const rawBody = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
-    const isValid = verifyRazorpayWebhookSignature(rawBody, signature, webhookSecret);
-    if (!isValid) {
-      return res.status(400).json({ error: 'Invalid webhook signature' });
-    }
+
+    const result = db.rejectManualPayment({
+      paymentIdOrPropertyId: paymentIdOrPropId,
+      adminId: admin.id,
+      adminName: admin.name,
+      reason: reason.trim()
+    });
+
+    // In-app Notification to Dealer
+    db.createNotification({
+      userId: result.property.dealerId,
+      targetRole: 'dealer',
+      title: `Payment Rejected for [${result.property.propertyCode}]`,
+      titleTa: `[${result.property.propertyCode}] க்கான கட்டணம் நிராகரிக்கப்பட்டது`,
+      message: `Your payment was rejected: ${reason.trim()}. Please review and resubmit your payment details.`,
+      messageTa: `உங்கள் கட்டணம் நிராகரிக்கப்பட்டது: ${reason.trim()}. தயவுசெய்து சரியான விவரங்களை மீண்டும் சமர்ப்பிக்கவும்.`,
+      link: '/dealer'
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to reject manual payment' });
   }
-
-  const result = handleWebhookPaymentReconciliation(req.body);
-
-  if (result.success && result.payment && result.payment.status === 'success') {
-    emailService.sendPaymentVerifiedNotification(result.payment).catch(e => console.warn('[Email Error]:', e.message));
-  }
-
-  return res.json({ status: 'ok', ...result });
 });
 
-// Status check endpoint for frontend polling or fallback reconciliation
-router.get('/payments/status/:propertyId', authenticate, async (req: AuthenticatedRequest, res) => {
+// Admin Get All Manual UPI Payments
+router.get('/payments/manual', authenticate, requireRole(['admin']), (_req: AuthenticatedRequest, res) => {
+  const manualPayments = db.getManualPayments();
+  return res.json(manualPayments);
+});
+
+// Payment status check endpoint for dealer / property details
+router.get('/payments/status/:propertyId', authenticate, (req: AuthenticatedRequest, res) => {
   try {
     const propertyId = req.params.propertyId as string;
     const user = req.user!;
@@ -493,19 +506,6 @@ router.get('/payments/status/:propertyId', authenticate, async (req: Authenticat
     }
 
     const payment = db.getPaymentByPropertyId(propertyId);
-
-    // If pending and has orderId, check Razorpay status
-    if (payment && payment.status === 'pending' && payment.orderId) {
-      const orderCheck = await checkOrderStatus(payment.orderId, propertyId);
-      if (orderCheck.status === 'success' && orderCheck.payment) {
-        return res.json({
-          paymentStatus: 'success',
-          propertyStatus: 'pending_approval',
-          payment: orderCheck.payment,
-          message: 'Payment verified and property moved to pending approval queue'
-        });
-      }
-    }
 
     return res.json({
       paymentStatus: payment?.status || 'pending',

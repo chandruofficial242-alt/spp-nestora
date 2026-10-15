@@ -35,7 +35,10 @@ import {
   FileText,
   Filter,
   MapPin,
-  Eye
+  Eye,
+  QrCode,
+  Copy,
+  Check
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
@@ -45,6 +48,7 @@ export const AdminDashboardPage: React.FC = () => {
     approveProperty, 
     rejectProperty, 
     deleteProperty,
+    updateProperty,
     allUsers,
     dealers, 
     updateDealerStatus, 
@@ -55,21 +59,48 @@ export const AdminDashboardPage: React.FC = () => {
     settings, 
     updateSettings,
     notifications,
-    markNotificationAsRead
+    markNotificationAsRead,
+    showToast
   } = useApp();
 
   const [activeSection, setActiveSection] = useState<
-    'overview' | 'properties' | 'pending' | 'customers' | 'dealers' | 'enquiries' | 'visits' | 'payments' | 'settings'
+    'overview' | 'manual_payments' | 'pending' | 'properties' | 'customers' | 'dealers' | 'enquiries' | 'visits' | 'payments' | 'settings'
   >('overview');
 
   const [selectedInvoice, setSelectedInvoice] = useState<Payment | null>(null);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+
+  // Manual UPI Payments State
+  const [manualPayments, setManualPayments] = useState<Payment[]>([]);
+  const [loadingManualPayments, setLoadingManualPayments] = useState(false);
+  const [manualPaymentTab, setManualPaymentTab] = useState<'pending' | 'history'>('pending');
+  const [verifyModalPayment, setVerifyModalPayment] = useState<Payment | null>(null);
+  const [rejectPaymentModal, setRejectPaymentModal] = useState<Payment | null>(null);
+  const [rejectPaymentReason, setRejectPaymentReason] = useState('');
+  const [screenshotModalUrl, setScreenshotModalUrl] = useState<string | null>(null);
+  const [copiedUtr, setCopiedUtr] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
 
   // Payments Dashboard State
   const [livePayments, setLivePayments] = useState<Payment[]>(payments);
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'success' | 'pending' | 'failed'>('all');
   const [viewingAuditPayment, setViewingAuditPayment] = useState<Payment | null>(null);
   const [loadingPayments, setLoadingPayments] = useState(false);
+
+  const fetchManualPayments = async () => {
+    setLoadingManualPayments(true);
+    try {
+      const data = await apiService.getManualPayments();
+      if (Array.isArray(data)) {
+        setManualPayments(data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch manual payments:', err);
+    } finally {
+      setLoadingManualPayments(false);
+    }
+  };
 
   const fetchLivePayments = async () => {
     setLoadingPayments(true);
@@ -87,13 +118,72 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   useEffect(() => {
+    fetchManualPayments();
     fetchLivePayments();
   }, [activeSection]);
+
+  const handleCopyUtr = (utr: string) => {
+    navigator.clipboard.writeText(utr);
+    setCopiedUtr(utr);
+    showToast('UTR reference copied to clipboard', 'info');
+    setTimeout(() => setCopiedUtr(null), 2500);
+  };
+
+  const handleConfirmVerifyPayment = async () => {
+    if (!verifyModalPayment) return;
+    setIsVerifying(true);
+    try {
+      const res = await apiService.verifyManualPayment(verifyModalPayment.id);
+      if (res && res.success) {
+        showToast('Payment verified successfully! Property moved to Pending Approvals.', 'success');
+        if (res.property) {
+          updateProperty(res.property.id, res.property);
+        }
+        await fetchManualPayments();
+        await fetchLivePayments();
+        setVerifyModalPayment(null);
+      } else {
+        showToast(res?.message || 'Verification failed', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Verification failed. Bank record check required.', 'error');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleConfirmRejectPayment = async () => {
+    if (!rejectPaymentModal) return;
+    if (!rejectPaymentReason.trim()) {
+      showToast('A rejection reason is required so the dealer can correct their payment submission.', 'error');
+      return;
+    }
+    setIsRejecting(true);
+    try {
+      const res = await apiService.rejectManualPayment(rejectPaymentModal.id, rejectPaymentReason.trim());
+      if (res && res.success) {
+        showToast('Payment submission rejected. Dealer notified to resubmit.', 'warning');
+        if (res.property) {
+          updateProperty(res.property.id, res.property);
+        }
+        await fetchManualPayments();
+        await fetchLivePayments();
+        setRejectPaymentModal(null);
+        setRejectPaymentReason('');
+      } else {
+        showToast(res?.message || 'Rejection failed', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Rejection failed', 'error');
+    } finally {
+      setIsRejecting(false);
+    }
+  };
 
   // CRM notes editing state
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
 
-  // Rejection Modal state
+  // Rejection Modal state (Property content rejection)
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectingPropertyId, setRejectingPropertyId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -105,6 +195,9 @@ export const AdminDashboardPage: React.FC = () => {
   const customers = (allUsers || []).filter((u: User) => u.role === 'customer');
 
   // KPI Calculations
+  const pendingManualPayments = manualPayments.filter(
+    (p: Payment) => p.status === 'submitted' || p.status === 'pending'
+  );
   const totalProperties = properties.filter((p: Property) => p.status !== 'archived').length;
   const pendingProperties = properties.filter((p: Property) => p.status === 'pending_approval');
   const activeProperties = properties.filter((p: Property) => p.status === 'available').length;
@@ -190,6 +283,7 @@ export const AdminDashboardPage: React.FC = () => {
       <div className="flex space-x-2 overflow-x-auto pb-2 border-b border-slate-200 scrollbar-thin">
         {[
           { id: 'overview', label: 'Overview', icon: <Layers className="w-4 h-4" /> },
+          { id: 'manual_payments', label: `Manual UPI (${pendingManualPayments.length})`, icon: <QrCode className="w-4 h-4" />, badge: pendingManualPayments.length > 0 },
           { id: 'pending', label: `Pending Approvals (${pendingProperties.length})`, icon: <Clock className="w-4 h-4" />, badge: pendingProperties.length > 0 },
           { id: 'properties', label: `All Properties (${totalProperties})`, icon: <Building2 className="w-4 h-4" /> },
           { id: 'customers', label: `Customers (${customers.length})`, icon: <UserCheck className="w-4 h-4" /> },
@@ -249,22 +343,44 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
 
           {/* Pending Action Alerts */}
+          {pendingManualPayments.length > 0 && (
+            <div className="bg-brand-50 border border-brand-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center space-x-3">
+                <QrCode className="w-7 h-7 text-brand-900 flex-shrink-0" />
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">
+                    {pendingManualPayments.length} Manual UPI Payment(s) Awaiting Bank Verification
+                  </h4>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Dealers have submitted ₹10 UPI payment proofs with UTR references. Verify against your bank statement before approving.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveSection('manual_payments')}
+                className="px-4 py-2 bg-brand-900 hover:bg-brand-950 text-white rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center justify-center space-x-1.5 self-start sm:self-auto"
+              >
+                <span>Verify Payments Now</span>
+              </button>
+            </div>
+          )}
+
           {pendingProperties.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-center justify-between gap-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center space-x-3">
                 <AlertTriangle className="w-6 h-6 text-amber-600 flex-shrink-0" />
                 <div>
                   <h4 className="font-bold text-slate-900 text-sm">
-                    {pendingProperties.length} Property Listing(s) Awaiting Your Review
+                    {pendingProperties.length} Property Listing(s) Awaiting Final Content Review
                   </h4>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    Dealers have already paid their ₹10 listing fees. Review and publish to live search.
+                    Listing fee is already verified. Review property details, photos, and legal disclosures before publishing live.
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setActiveSection('pending')}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer self-start sm:self-auto"
               >
                 Review Listings Now
               </button>
@@ -309,6 +425,355 @@ export const AdminDashboardPage: React.FC = () => {
               ))}
             </div>
           </div>
+
+        </div>
+      )}
+
+      {/* SECTION: MANUAL UPI PAYMENTS VERIFICATION */}
+      {activeSection === 'manual_payments' && (
+        <div className="space-y-6">
+          
+          {/* Header & Bank Verification Mandatory Warning */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-subtle space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-center space-x-3">
+                <div className="w-12 h-12 rounded-2xl bg-brand-100 text-brand-900 flex items-center justify-center">
+                  <QrCode className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h2 className="text-xl font-bold text-slate-900">Manual UPI Payments Desk</h2>
+                    <span className="bg-emerald-100 text-emerald-900 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border border-emerald-300">
+                      ₹10 Fixed Fee
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Official QR Account: <span className="font-mono font-bold text-brand-900">{settings.officialUpiId || 'summada700-4@okaxis'}</span> • Reconcile dealer UTRs against bank records
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={fetchManualPayments}
+                  disabled={loadingManualPayments}
+                  className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingManualPayments ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Strict Admin Advisory Notice */}
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300/80 flex items-start space-x-3 text-xs text-amber-950">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <strong className="block font-bold">Important Security & Compliance Rule:</strong>
+                <p>
+                  You must check your UPI merchant app / bank transaction history to confirm that <strong>₹10.00</strong> was received from the specified UTR reference. Dealer-submitted details and screenshots are unverified evidence — <strong>a screenshot alone is insufficient</strong>.
+                </p>
+                <p className="text-amber-800 text-[11px]">
+                  Verifying a payment automatically moves the property to <strong>Pending Approvals</strong>. A separate listing approval action is required before the property becomes publicly visible.
+                </p>
+              </div>
+            </div>
+
+            {/* Sub Tabs */}
+            <div className="flex items-center space-x-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setManualPaymentTab('pending')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 ${
+                  manualPaymentTab === 'pending'
+                    ? 'bg-brand-900 text-white shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+              >
+                <span>Pending Submissions</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                  manualPaymentTab === 'pending' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {pendingManualPayments.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setManualPaymentTab('history')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 ${
+                  manualPaymentTab === 'history'
+                    ? 'bg-brand-900 text-white shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+              >
+                <span>Verification & Rejection History</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                  manualPaymentTab === 'history' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {manualPayments.filter(p => p.status === 'success' || p.status === 'failed' || p.status === 'rejected').length}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* TAB 1: PENDING MANUAL PAYMENTS */}
+          {manualPaymentTab === 'pending' && (
+            <div className="space-y-4">
+              {pendingManualPayments.length === 0 ? (
+                <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center text-slate-500 text-sm space-y-2">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                  <h4 className="font-bold text-slate-800 text-base">No Pending UPI Submissions</h4>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    All dealer ₹10 UPI payment submissions have been reviewed and reconciled.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4">
+                  {pendingManualPayments.map((p: Payment) => {
+                    const prop = properties.find(pr => pr.id === p.propertyId);
+                    const utr = p.utr || p.transactionRef || '';
+
+                    return (
+                      <div key={p.id} className="bg-white rounded-3xl border border-slate-200 p-6 shadow-subtle space-y-4">
+                        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
+                          
+                          {/* Left: Property & Dealer Context */}
+                          <div className="space-y-2.5 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono font-bold text-xs bg-brand-50 text-brand-900 border border-brand-200 px-2 py-0.5 rounded">
+                                {prop?.propertyCode || p.propertyId}
+                              </span>
+                              <span className="bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-[10px] uppercase px-2 py-0.5 rounded flex items-center space-x-1">
+                                <Clock className="w-3 h-3 text-amber-700" />
+                                <span>Awaiting Bank Verification</span>
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                Submitted: {p.createdAt ? new Date(p.createdAt).toLocaleString('en-IN') : 'Recent'}
+                              </span>
+                            </div>
+
+                            <h3 className="font-bold text-slate-900 text-base">
+                              {p.propertyTitle || prop?.title || 'Property Listing Submission'}
+                            </h3>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                              <div>
+                                <span className="text-slate-400 block text-[10px] uppercase font-bold">Dealer Account</span>
+                                <span className="font-bold text-slate-900">{p.dealerName}</span>
+                                <span className="text-slate-500 font-mono text-[11px] block">ID: {p.dealerId}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block text-[10px] uppercase font-bold">Expected Listing Fee</span>
+                                <span className="text-base font-black text-emerald-800">₹{p.amount}.00</span>
+                                <span className="text-slate-400 text-[10px] block">Server-enforced flat fee</span>
+                              </div>
+                            </div>
+
+                            {/* UTR Reference Box with Copy */}
+                            <div className="p-3 bg-brand-50/60 border border-brand-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div>
+                                <span className="text-[10px] uppercase font-extrabold text-brand-900 block">
+                                  Submitted UPI Reference / UTR Number:
+                                </span>
+                                <span className="font-mono text-base font-black text-brand-950 tracking-wider">
+                                  {utr || 'NOT_PROVIDED'}
+                                </span>
+                              </div>
+
+                              {utr && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyUtr(utr)}
+                                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-brand-900 border border-brand-300 rounded-xl text-xs font-bold transition cursor-pointer self-start sm:self-auto"
+                                >
+                                  {copiedUtr === utr ? (
+                                    <>
+                                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span className="text-emerald-700">Copied!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3.5 h-3.5" />
+                                      <span>Copy UTR</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Right: Payment Screenshot Thumbnail & Action Buttons */}
+                          <div className="flex flex-col sm:flex-row lg:flex-col items-start lg:items-end justify-between gap-4 flex-shrink-0">
+                            
+                            {/* Screenshot Thumbnail Preview */}
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                                Payment Screenshot
+                              </span>
+                              {p.screenshotUrl ? (
+                                <div
+                                  onClick={() => setScreenshotModalUrl(p.screenshotUrl || null)}
+                                  className="group relative w-32 h-24 rounded-2xl overflow-hidden border-2 border-slate-200 hover:border-brand-500 cursor-pointer bg-slate-100 shadow-xs transition"
+                                  title="Click to view full screenshot"
+                                >
+                                  <img
+                                    src={p.screenshotUrl}
+                                    alt="Payment Screenshot"
+                                    className="w-full h-full object-cover group-hover:scale-105 transition"
+                                  />
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[11px] font-bold space-x-1">
+                                    <Eye className="w-4 h-4" />
+                                    <span>Zoom</span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="w-32 h-24 rounded-2xl border border-dashed border-slate-300 bg-slate-50 flex flex-col items-center justify-center p-2 text-center text-slate-400 text-[10px]">
+                                  <span>No image attached</span>
+                                  <span className="text-[9px] text-slate-400">(Check UTR directly)</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Action Buttons: Verify & Reject */}
+                            <div className="space-y-2 w-full sm:w-auto">
+                              <button
+                                type="button"
+                                onClick={() => setVerifyModalPayment(p)}
+                                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>Verify Payment</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRejectPaymentModal(p);
+                                  setRejectPaymentReason('');
+                                }}
+                                className="w-full sm:w-auto px-5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer"
+                              >
+                                <XCircle className="w-4 h-4" />
+                                <span>Reject Submission</span>
+                              </button>
+                            </div>
+
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 2: VERIFICATION & AUDIT HISTORY */}
+          {manualPaymentTab === 'history' && (
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-subtle overflow-hidden">
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">UPI Payment Verification & Audit History</h3>
+                  <p className="text-xs text-slate-500">Record of verified receipts and rejected submissions</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase font-bold tracking-wider text-[10px]">
+                    <tr>
+                      <th className="p-4">Property Reference</th>
+                      <th className="p-4">Dealer</th>
+                      <th className="p-4">UTR Number</th>
+                      <th className="p-4">Amount</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4">Verified By Admin</th>
+                      <th className="p-4">Timestamp</th>
+                      <th className="p-4">Reason / Notes</th>
+                      <th className="p-4 text-right">Audit Trail</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {manualPayments
+                      .filter(p => p.status === 'success' || p.status === 'failed' || p.status === 'rejected')
+                      .map((p: Payment) => {
+                        const prop = properties.find(pr => pr.id === p.propertyId);
+                        const isSuccess = p.status === 'success';
+
+                        return (
+                          <tr key={p.id} className="hover:bg-slate-50/60 transition">
+                            <td className="p-4">
+                              <span className="font-bold text-slate-900 block truncate max-w-[180px]">
+                                {p.propertyTitle || prop?.title || 'Property Listing'}
+                              </span>
+                              <span className="font-mono text-[10px] text-slate-500 block">
+                                {prop?.propertyCode || p.propertyId}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <span className="font-bold text-slate-900 block">{p.dealerName}</span>
+                              <span className="text-[10px] text-slate-400 block">ID: {p.dealerId}</span>
+                            </td>
+                            <td className="p-4 font-mono font-bold text-brand-900">
+                              {p.utr || p.transactionRef || '—'}
+                            </td>
+                            <td className="p-4 font-black text-slate-900">
+                              ₹{p.amount}.00
+                            </td>
+                            <td className="p-4">
+                              {isSuccess ? (
+                                <span className="bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-full text-[10px] inline-flex items-center space-x-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>Verified</span>
+                                </span>
+                              ) : (
+                                <span className="bg-rose-100 text-rose-800 font-bold px-2.5 py-1 rounded-full text-[10px] inline-flex items-center space-x-1">
+                                  <XCircle className="w-3 h-3 text-rose-600" />
+                                  <span>Rejected</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4 text-slate-700">
+                              {p.verifiedByAdminName ? (
+                                <div>
+                                  <span className="font-bold block">{p.verifiedByAdminName}</span>
+                                  <span className="text-[10px] font-mono text-slate-400">ID: {p.verifiedByAdminId}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                            <td className="p-4 text-slate-500 text-[11px]">
+                              {p.verifiedAt ? new Date(p.verifiedAt).toLocaleString('en-IN') : p.createdAt ? new Date(p.createdAt).toLocaleString('en-IN') : '—'}
+                            </td>
+                            <td className="p-4 text-slate-600 text-[11px] max-w-xs">
+                              {p.rejectionReason ? (
+                                <span className="text-rose-700 font-medium">{p.rejectionReason}</span>
+                              ) : (
+                                <span className="text-slate-400">₹10 verified & matched bank record</span>
+                              )}
+                            </td>
+                            <td className="p-4 text-right">
+                              <button
+                                onClick={() => setViewingAuditPayment(p)}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px] cursor-pointer"
+                              >
+                                Audit
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+
+                {manualPayments.filter(p => p.status === 'success' || p.status === 'failed' || p.status === 'rejected').length === 0 && (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    No verified or rejected manual payment history recorded yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
         </div>
       )}
@@ -870,7 +1335,7 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">Admin Payments Dashboard</h2>
-                  <p className="text-xs text-slate-500">Live Razorpay ₹10 listing fees, webhook reconciliations & audit logs</p>
+                  <p className="text-xs text-slate-500">Official ₹10 listing fees, UPI bank reconciliations & payment audit logs</p>
                 </div>
               </div>
 
@@ -951,7 +1416,7 @@ export const AdminDashboardPage: React.FC = () => {
                     <th className="p-4">Dealer Account</th>
                     <th className="p-4">Expected Fee</th>
                     <th className="p-4">Status</th>
-                    <th className="p-4">Razorpay Reference</th>
+                    <th className="p-4">Payment / UTR Reference</th>
                     <th className="p-4">Verification Method</th>
                     <th className="p-4">Payment Date</th>
                     <th className="p-4 text-right">Actions</th>
@@ -1020,6 +1485,11 @@ export const AdminDashboardPage: React.FC = () => {
                             )}
                           </td>
                           <td className="p-4 text-[10px]">
+                            {p.verificationMethod === 'manual_upi_verification' && (
+                              <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold px-2 py-0.5 rounded block text-center">
+                                Manual UPI Verified
+                              </span>
+                            )}
                             {p.verificationMethod === 'razorpay_signature' && (
                               <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold px-2 py-0.5 rounded block text-center">
                                 Checkout (HMAC)
@@ -1232,6 +1702,208 @@ export const AdminDashboardPage: React.FC = () => {
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
                 Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full Screenshot Preview Modal */}
+      {screenshotModalUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-elevated flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Eye className="w-5 h-5 text-brand-900" />
+                <h3 className="font-bold text-base text-slate-900">Dealer Payment Screenshot Proof</h3>
+              </div>
+              <button
+                onClick={() => setScreenshotModalUrl(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-3 bg-amber-50 rounded-xl text-xs text-amber-900 border border-amber-200">
+              ⚠️ <strong>Notice:</strong> Screenshots can be digitally altered. Always cross-verify the UTR against your bank or UPI app transaction history.
+            </div>
+
+            <div className="flex-1 overflow-auto rounded-2xl bg-slate-100 p-2 flex items-center justify-center">
+              <img
+                src={screenshotModalUrl}
+                alt="Payment proof screenshot"
+                className="max-h-[60vh] w-auto object-contain rounded-xl shadow-xs"
+              />
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setScreenshotModalUrl(null)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Payment Verification Confirmation Modal */}
+      {verifyModalPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-elevated">
+            <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Confirm Bank Verification</h3>
+                <p className="text-xs text-slate-500">Property: {verifyModalPayment.propertyTitle}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Dealer:</span>
+                <span className="font-bold text-slate-900">{verifyModalPayment.dealerName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Fixed Fee:</span>
+                <span className="font-black text-emerald-800 text-sm">₹{verifyModalPayment.amount}.00</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Dealer Submitted UTR:</span>
+                <span className="font-mono font-black text-brand-900 text-sm bg-white px-2 py-0.5 rounded border border-slate-200">
+                  {verifyModalPayment.utr || verifyModalPayment.transactionRef}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-950 space-y-1">
+              <strong>Checklist:</strong>
+              <p>1. Have you checked your bank or UPI merchant app statement?</p>
+              <p>2. Does the ₹10 credit match this UTR number?</p>
+              <p className="text-[11px] text-amber-800 pt-1">
+                Upon confirmation, this listing fee is marked verified and the property moves to <strong>Pending Approvals</strong>. The property will NOT be publicly published until you complete the final listing content review.
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isVerifying}
+                onClick={() => setVerifyModalPayment(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isVerifying}
+                onClick={handleConfirmVerifyPayment}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
+              >
+                {isVerifying ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Verifying...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Yes, I Verified Bank UTR</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Payment Rejection Modal */}
+      {rejectPaymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-elevated">
+            <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center">
+                <XCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900">Reject Payment Submission</h3>
+                <p className="text-xs text-slate-500">UTR: {rejectPaymentModal.utr || rejectPaymentModal.transactionRef}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              A rejection reason is <strong>mandatory</strong>. The dealer will see this message on their dashboard and can correct their UTR reference or screenshot and resubmit.
+            </p>
+
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">Quick Reason Presets:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'UTR number not found in bank or UPI statement.',
+                  'Payment amount is less than ₹10.',
+                  'UTR reference is invalid or unreadable.',
+                  'Duplicate transaction reference already used.'
+                ].map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setRejectPaymentReason(preset)}
+                    className="px-2.5 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-left cursor-pointer transition"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                Rejection Reason *
+              </label>
+              <textarea
+                rows={3}
+                required
+                value={rejectPaymentReason}
+                onChange={(e) => setRejectPaymentReason(e.target.value)}
+                placeholder="State clearly why this payment proof was rejected..."
+                className="w-full p-3 border border-slate-300 rounded-xl text-xs outline-hidden focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isRejecting}
+                onClick={() => {
+                  setRejectPaymentModal(null);
+                  setRejectPaymentReason('');
+                }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isRejecting || !rejectPaymentReason.trim()}
+                onClick={handleConfirmRejectPayment}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
+              >
+                {isRejecting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Rejecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4" />
+                    <span>Confirm Rejection</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

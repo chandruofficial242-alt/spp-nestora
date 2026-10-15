@@ -194,52 +194,58 @@ export const apiService = {
     return res.json();
   },
 
-  // --- PAYMENTS ---
-  async getPaymentMethods(): Promise<{ success: boolean; isSandbox: boolean; methods: { upi: boolean; upiIntent: boolean; upiQr: boolean; card: boolean; netbanking: boolean; wallet: boolean } }> {
-    try {
-      const res = await fetch(`${API_BASE}/payments/methods`, {
-        headers: { ...getAuthHeader() }
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch (_) {}
-    return {
-      success: true,
-      isSandbox: false,
-      methods: { upi: true, upiIntent: true, upiQr: true, card: true, netbanking: true, wallet: true }
-    };
-  },
-
-  async createPaymentOrder(propertyId: string, propertyTitle: string, method: string) {
-    const res = await fetch(`${API_BASE}/payments/create-order`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-      body: JSON.stringify({ propertyId, propertyTitle, method })
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to create payment order');
-    }
-    return res.json();
-  },
-
-  async verifyPayment(params: {
-    orderId: string;
-    paymentId?: string;
-    signature?: string;
+  // --- MANUAL UPI QR PAYMENTS ---
+  async submitManualPayment(params: {
     propertyId: string;
-    propertyTitle: string;
-    method: string;
-  }) {
-    const res = await fetch(`${API_BASE}/payments/verify`, {
+    amount?: number;
+    utr: string;
+    screenshotUrl?: string;
+    confirmed: boolean;
+  }): Promise<{ success: boolean; payment: Payment; property: Property; message?: string }> {
+    const res = await fetch(`${API_BASE}/payments/submit-manual`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify(params)
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Payment verification failed');
+      throw new Error(err.error || 'Failed to submit manual payment details');
+    }
+    return res.json();
+  },
+
+  async verifyManualPayment(paymentIdOrPropertyId: string): Promise<{ success: boolean; payment: Payment; property: Property; message?: string }> {
+    const res = await fetch(`${API_BASE}/payments/manual/${paymentIdOrPropertyId}/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to verify manual payment');
+    }
+    return res.json();
+  },
+
+  async rejectManualPayment(paymentIdOrPropertyId: string, reason: string): Promise<{ success: boolean; payment: Payment; property: Property; message?: string }> {
+    const res = await fetch(`${API_BASE}/payments/manual/${paymentIdOrPropertyId}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ reason })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to reject manual payment');
+    }
+    return res.json();
+  },
+
+  async getManualPayments(): Promise<Payment[]> {
+    const res = await fetch(`${API_BASE}/payments/manual`, {
+      headers: getAuthHeader()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch manual payments');
     }
     return res.json();
   },

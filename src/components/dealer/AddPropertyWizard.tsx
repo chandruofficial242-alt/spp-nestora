@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { Property, PropertyImage, Payment, PropertyType } from '../../types';
+import { Property, PropertyImage, PropertyType } from '../../types';
 import { TN_DISTRICTS, DISTRICT_LOCALITIES } from '../../data/seedData';
 import { apiService } from '../../services/api';
 import { 
-  Building2, 
   MapPin, 
   CheckCircle2, 
   ArrowRight, 
@@ -13,23 +12,15 @@ import {
   Upload, 
   Trash2, 
   Video, 
-  CreditCard, 
   ShieldCheck, 
-  QrCode,
   Loader2, 
   FileCheck, 
   AlertTriangle,
   Eye,
-  Sparkles,
-  Compass,
-  FileText,
   IndianRupee,
-  Home,
-  Layers,
-  Trees,
-  KeyRound,
-  Calendar,
-  X
+  X,
+  Copy,
+  Check
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -60,18 +51,9 @@ export const AddPropertyWizard: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  const [receipt, setReceipt] = useState<Payment | null>(null);
   const [createdProperty, setCreatedProperty] = useState<Property | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'pending' | 'success' | 'failed'>('idle');
   const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const pollingRef = useRef<any>(null);
-
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, []);
 
   // Guard: Ensure dealer is authenticated
   useEffect(() => {
@@ -166,19 +148,13 @@ export const AddPropertyWizard: React.FC = () => {
     }
   }, [formData.totalArea, formData.areaUnit, formData.price, formData.builtUpAreaSqft, formData.type]);
 
-  // Payment Options
-  const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
-  const [gatewayMethods, setGatewayMethods] = useState<{ upi: boolean; upiQr: boolean; card: boolean; netbanking: boolean; wallet: boolean } | null>(null);
-
-  useEffect(() => {
-    if (currentStep === 6) {
-      apiService.getPaymentMethods().then(res => {
-        if (res && res.methods) {
-          setGatewayMethods(res.methods);
-        }
-      }).catch(() => {});
-    }
-  }, [currentStep]);
+  // Manual UPI QR Payment States
+  const [utrNumber, setUtrNumber] = useState('');
+  const [paymentScreenshot, setPaymentScreenshot] = useState<string | null>(null);
+  const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
+  const [confirmedPayment, setConfirmedPayment] = useState(false);
+  const [copiedUpi, setCopiedUpi] = useState(false);
+  const [submittedUtrInfo, setSubmittedUtrInfo] = useState<{ utr: string; propertyCode: string; amount: number } | null>(null);
 
   // Helpers
   const handleInputChange = (field: keyof Property, value: any) => {
@@ -428,22 +404,49 @@ export const AddPropertyWizard: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Load Razorpay Script Dynamically
-  const loadRazorpayScript = (): Promise<boolean> => {
-    return new Promise((resolve) => {
-      if ((window as any).Razorpay) {
-        return resolve(true);
-      }
-      const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
+  // Copy UPI ID to clipboard
+  const handleCopyUpiId = () => {
+    const upiId = settings.officialUpiId || 'summada700-4@okaxis';
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(upiId).then(() => {
+        setCopiedUpi(true);
+        showToast(`UPI ID copied: ${upiId}`, 'success');
+        setTimeout(() => setCopiedUpi(false), 2500);
+      }).catch(() => {
+        showToast(`UPI ID: ${upiId}`, 'info');
+      });
+    } else {
+      showToast(`UPI ID: ${upiId}`, 'info');
+    }
   };
 
-  // Submit & Pay Listing Fee (Real Razorpay / Sandbox Hybrid with Status Polling & Retry)
-  const handlePaymentAndSubmit = async () => {
+  // Upload Payment Screenshot
+  const handleScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Payment screenshot must be smaller than 5MB', 'error');
+      return;
+    }
+
+    setUploadingScreenshot(true);
+    try {
+      const res = await apiService.uploadImage(file);
+      if (res && res.url) {
+        setPaymentScreenshot(res.url);
+        showToast('Payment screenshot attached successfully!', 'success');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to upload screenshot', 'error');
+    } finally {
+      setUploadingScreenshot(false);
+      e.target.value = '';
+    }
+  };
+
+  // Submit Manual UPI Payment Proof (Fixed ₹10 Fee)
+  const handleManualPaymentSubmit = async () => {
     const token = localStorage.getItem('spp_nestora_token');
     if (!token || !currentUser) {
       showToast('Please log in with your Dealer account to continue.', 'error');
@@ -451,9 +454,24 @@ export const AddPropertyWizard: React.FC = () => {
       return;
     }
 
+    if (!utrNumber || !utrNumber.trim()) {
+      showToast('Please enter the 12-digit UPI transaction reference (UTR) from your payment app.', 'error');
+      return;
+    }
+
+    const cleanUtr = utrNumber.trim();
+    if (cleanUtr.length < 6 || cleanUtr.length > 30) {
+      showToast('Please enter a valid UPI transaction reference / UTR (6 to 30 characters).', 'error');
+      return;
+    }
+
+    if (!confirmedPayment) {
+      showToast('Please confirm that you have transferred ₹10 to the UPI QR code.', 'error');
+      return;
+    }
+
     setLoading(true);
     setPaymentError(null);
-    setPaymentStatus('pending');
 
     try {
       // 1. Ensure property is saved in backend with pending_payment status (or reused on retry)
@@ -470,162 +488,26 @@ export const AddPropertyWizard: React.FC = () => {
         setCreatedProperty(targetProperty);
       }
 
-      // 2. Create authoritative order on backend (Exact ₹10 fee)
-      const order = await apiService.createPaymentOrder(
-        targetProperty.id,
-        targetProperty.title || formData.title || 'Property Listing',
-        paymentMethod
-      );
-
-      const isRealRazorpay = order.keyId && order.keyId.startsWith('rzp_') && !order.keyId.includes('placeholder');
-
-      if (order.methods) {
-        setGatewayMethods(order.methods);
-      }
-
-      // Start background status polling in case of UPI external redirect / delayed webhook
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      pollingRef.current = setInterval(async () => {
-        try {
-          if (!targetProperty) return;
-          const statusRes = await apiService.checkPaymentStatus(targetProperty.id);
-          if (statusRes.paymentStatus === 'success') {
-            if (pollingRef.current) clearInterval(pollingRef.current);
-            setReceipt(statusRes.payment || null);
-            setPaymentStatus('success');
-            setLoading(false);
-            setCurrentStep(7);
-            confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
-            showToast('Payment verified successfully via Razorpay!', 'success');
-          }
-        } catch {}
-      }, 4000);
-
-      if (isRealRazorpay) {
-        const scriptLoaded = await loadRazorpayScript();
-        if (scriptLoaded && (window as any).Razorpay) {
-          const displayConfig = {
-            blocks: {
-              upi: {
-                name: 'Pay using UPI / QR Code',
-                instruments: [
-                  {
-                    method: 'upi',
-                    flows: ['qr', 'intent', 'collect']
-                  }
-                ]
-              },
-              other: {
-                name: 'Cards, Netbanking & Wallets',
-                instruments: [
-                  { method: 'card' },
-                  { method: 'netbanking' },
-                  { method: 'wallet' }
-                ]
-              }
-            },
-            sequence: paymentMethod === 'upi'
-              ? ['block.upi', 'block.other']
-              : ['block.other', 'block.upi'],
-            preferences: {
-              show_default_blocks: true
-            }
-          };
-
-          const options: any = {
-            key: order.keyId,
-            amount: Math.round(order.amount * 100),
-            currency: order.currency || 'INR',
-            name: 'SPP Nestora',
-            description: `₹${order.amount} Property Listing Fee`,
-            order_id: order.orderId,
-            notes: {
-              propertyId: targetProperty.id,
-              dealerId: currentUser.id,
-              propertyTitle: targetProperty.title
-            },
-            prefill: {
-              name: currentUser.name || '',
-              email: currentUser.email || '',
-              contact: currentUser.phone || ''
-            },
-            theme: {
-              color: '#0f172a'
-            },
-            config: {
-              display: displayConfig
-            },
-            modal: {
-              ondismiss: () => {
-                setLoading(false);
-                setPaymentStatus('failed');
-                setPaymentError('Payment window was dismissed before completion. You can retry safely.');
-                showToast('Payment cancelled. Click "Retry Payment" when ready.', 'warning');
-              }
-            },
-            handler: async (response: any) => {
-              try {
-                setLoading(true);
-                const verifyRes = await apiService.verifyPayment({
-                  orderId: response.razorpay_order_id || order.orderId,
-                  paymentId: response.razorpay_payment_id,
-                  signature: response.razorpay_signature,
-                  propertyId: targetProperty.id,
-                  propertyTitle: targetProperty.title,
-                  method: paymentMethod
-                });
-
-                if (!verifyRes.success) {
-                  throw new Error(verifyRes.error || 'Cryptographic signature verification failed.');
-                }
-
-                if (pollingRef.current) clearInterval(pollingRef.current);
-                setReceipt(verifyRes.paymentRecord);
-                setPaymentStatus('success');
-                setCurrentStep(7);
-                confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
-                showToast('Payment verified successfully! Property submitted for Admin review.', 'success');
-              } catch (verifyErr: any) {
-                console.error('Signature verification error:', verifyErr);
-                setPaymentStatus('failed');
-                setPaymentError(verifyErr.message || 'Payment signature verification failed.');
-                showToast(verifyErr.message || 'Payment verification failed', 'error');
-              } finally {
-                setLoading(false);
-              }
-            }
-          };
-
-          const rzp = new (window as any).Razorpay(options);
-          rzp.open();
-          return;
-        }
-      }
-
-      // 3. Sandbox / Dev Flow (Backend Simulated Verification)
-      const verifyRes = await apiService.verifyPayment({
-        orderId: order.orderId,
-        paymentId: `sim_pay_${Date.now()}`,
+      // 2. Submit manual payment details with fixed ₹10 server fee
+      const submitRes = await apiService.submitManualPayment({
         propertyId: targetProperty.id,
-        propertyTitle: targetProperty.title,
-        method: paymentMethod
+        utr: cleanUtr,
+        screenshotUrl: paymentScreenshot || undefined,
+        confirmed: true
       });
 
-      if (!verifyRes.success) {
-        throw new Error('Payment verification failed on server');
-      }
-
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      setReceipt(verifyRes.paymentRecord);
-      setPaymentStatus('success');
+      setSubmittedUtrInfo({
+        utr: cleanUtr,
+        propertyCode: targetProperty.propertyCode,
+        amount: settings.listingFeeAmount || 10
+      });
       setCurrentStep(7);
-      confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
-      showToast('Listing fee recorded! Property submitted for Admin review.', 'success');
+      confetti({ particleCount: 75, spread: 65, origin: { y: 0.6 } });
+      showToast('Payment details submitted successfully! Awaiting SPP Nestora Admin verification.', 'success');
     } catch (err: any) {
-      console.error('Payment failure:', err);
-      setPaymentStatus('failed');
-      setPaymentError(err.message || 'Payment processing failed. Please retry.');
-      showToast(err.message || 'Payment processing failed. Please try again.', 'error');
+      console.error('Manual payment submission error:', err);
+      setPaymentError(err.message || 'Payment submission failed. Please try again.');
+      showToast(err.message || 'Failed to submit payment details.', 'error');
     } finally {
       setLoading(false);
     }
@@ -2034,151 +1916,225 @@ export const AddPropertyWizard: React.FC = () => {
       )}
 
       {/* ======================================================== */}
-      {/* STEP 6: ₹10 LISTING FEE PAYMENT */}
+      {/* STEP 6: MANUAL ₹10 UPI QR PAYMENT */}
       {/* ======================================================== */}
       {currentStep === 6 && (
         <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-elevated space-y-6">
           
-          <div className="text-center max-w-md mx-auto space-y-2">
+          <div className="text-center max-w-lg mx-auto space-y-2">
             <div className="w-14 h-14 rounded-2xl bg-brand-100 text-brand-800 flex items-center justify-center mx-auto text-2xl font-black shadow-inner">
               ₹{settings.listingFeeAmount || 10}
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-900">
-              Pay ₹{settings.listingFeeAmount || 10} Property Listing Fee
+              Pay ₹{settings.listingFeeAmount || 10} Listing Fee via UPI QR
             </h2>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Every property listing requires a fixed fee of ₹10 to initiate admin verification. Pay securely using UPI (GPay, PhonePe, Paytm, QR) or Cards.
+              Scan our official UPI QR code using any UPI app (Google Pay, PhonePe, Paytm, BHIM) and submit your 12-digit UTR reference below.
             </p>
           </div>
 
-          {/* Pricing Box */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 max-w-md mx-auto space-y-3">
-            <div className="flex justify-between text-xs text-slate-600">
-              <span>Listing Category:</span>
-              <span className="font-bold text-slate-900 uppercase">
-                {formData.type === 'land_sale' ? 'Land for Sale' : formData.type === 'house_rent' ? 'House for Rent' : 'House for Sale'}
+          {/* QR Code Card */}
+          <div className="max-w-md mx-auto bg-slate-50 border border-slate-200 rounded-3xl p-5 sm:p-6 text-center space-y-4 shadow-subtle">
+            
+            {/* Visual QR Image */}
+            <div className="relative inline-block bg-white p-3 rounded-2xl border-2 border-brand-200/60 shadow-md">
+              <img
+                src="/qr.jpg"
+                alt="SPP Nestora Official UPI QR Code"
+                className="w-56 h-auto max-h-72 mx-auto rounded-xl object-contain"
+                loading="eager"
+              />
+            </div>
+
+            {/* Copyable UPI ID Box */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-3 flex items-center justify-between gap-2 shadow-2xs">
+              <div className="text-left overflow-hidden">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Official UPI ID</span>
+                <span className="text-xs sm:text-sm font-mono font-bold text-slate-800 truncate block">
+                  {settings.officialUpiId || 'summada700-4@okaxis'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyUpiId}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 cursor-pointer flex-shrink-0 ${
+                  copiedUpi
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-brand-50 hover:bg-brand-100 text-brand-900 border border-brand-200'
+                }`}
+              >
+                {copiedUpi ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy UPI ID</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Step-by-step Quick Instructions */}
+            <div className="text-left bg-white/80 border border-slate-200 rounded-2xl p-3 text-xs space-y-1.5 text-slate-700">
+              <span className="font-bold text-slate-900 block text-[11px] uppercase tracking-wider">How to Pay in 4 Steps:</span>
+              <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-600">
+                <li>Open <strong>Google Pay, PhonePe, Paytm</strong>, or any UPI app.</li>
+                <li>Scan the QR code above or enter UPI ID <strong className="font-mono text-slate-800">{settings.officialUpiId || 'summada700-4@okaxis'}</strong>.</li>
+                <li>Transfer exactly <strong>₹{settings.listingFeeAmount || 10}.00</strong>.</li>
+                <li>Copy the 12-digit <strong>UPI Transaction ID / UTR</strong> from your debit receipt.</li>
+              </ol>
+            </div>
+
+            {/* Disclaimer Alert */}
+            <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-2xl text-left text-[11px] text-amber-900 leading-relaxed">
+              <span className="font-bold block mb-0.5">ℹ️ Manual Verification Notice:</span>
+              Payments via UPI QR are manually verified by SPP Nestora Admin against bank credit before property review. Submitting details does not automatically publish the property.
+            </div>
+          </div>
+
+          {/* Payment Proof Submission Form */}
+          <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-subtle space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 pb-2 border-b border-slate-100 flex items-center space-x-1.5">
+              <FileCheck className="w-4 h-4 text-emerald-600" />
+              <span>Submit Payment Details for Verification</span>
+            </h3>
+
+            {/* Property Reference & Fixed Amount */}
+            <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Property Ref</span>
+                <span className="font-mono font-bold text-slate-900 truncate block">
+                  {createdProperty?.propertyCode || 'Will be assigned'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold block uppercase">Fixed Fee</span>
+                <span className="font-black text-brand-900 block">₹{settings.listingFeeAmount || 10}.00</span>
+              </div>
+            </div>
+
+            {/* UTR Input */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                UPI Reference / UTR Number *
+              </label>
+              <input
+                type="text"
+                required
+                value={utrNumber}
+                onChange={(e) => setUtrNumber(e.target.value)}
+                placeholder="e.g. 412345678901 (12 digits)"
+                className="w-full px-3.5 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-hidden uppercase"
+              />
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Found on your Google Pay / PhonePe / Paytm transaction receipt.
               </span>
             </div>
-            <div className="flex justify-between text-xs text-slate-600">
-              <span>Property Reference:</span>
-              <span className="font-mono font-bold text-brand-900">{createdProperty?.propertyCode || 'Pending Assignment'}</span>
+
+            {/* Optional Screenshot Upload */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Payment Screenshot <span className="text-slate-400 normal-case font-normal">(Optional Evidence)</span>
+              </label>
+              
+              {paymentScreenshot ? (
+                <div className="relative rounded-xl border border-emerald-300 bg-emerald-50/50 p-2 flex items-center justify-between">
+                  <div className="flex items-center space-x-2 truncate">
+                    <img src={paymentScreenshot} alt="Proof" className="w-12 h-12 object-cover rounded-lg border border-slate-200" />
+                    <span className="text-xs font-bold text-emerald-800 truncate">Screenshot Attached</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentScreenshot(null)}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                    title="Remove Screenshot"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="border border-dashed border-slate-300 hover:border-brand-500 rounded-xl p-3 text-center bg-slate-50 transition cursor-pointer">
+                  <input
+                    type="file"
+                    id="payment-screenshot-input"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleScreenshotUpload}
+                    className="hidden"
+                  />
+                  <label htmlFor="payment-screenshot-input" className="cursor-pointer block text-xs">
+                    {uploadingScreenshot ? (
+                      <span className="flex items-center justify-center text-brand-700 font-bold">
+                        <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                        Uploading Screenshot...
+                      </span>
+                    ) : (
+                      <span className="text-brand-800 font-bold hover:underline">
+                        + Attach Payment Screenshot (JPG/PNG, Max 5MB)
+                      </span>
+                    )}
+                  </label>
+                </div>
+              )}
             </div>
-            <div className="flex justify-between text-xs text-slate-600">
-              <span>Listing Fee:</span>
-              <span className="font-bold text-slate-900">₹{settings.listingFeeAmount || 10}.00</span>
+
+            {/* Confirmation Checkbox */}
+            <div className="pt-2">
+              <label className="flex items-start space-x-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  required
+                  checked={confirmedPayment}
+                  onChange={(e) => setConfirmedPayment(e.target.checked)}
+                  className="mt-0.5 rounded text-brand-800 focus:ring-brand-500"
+                />
+                <span className="leading-snug">
+                  I confirm that I have transferred <strong>₹{settings.listingFeeAmount || 10}</strong> to the official UPI QR/ID and that this transaction reference (UTR) is accurate and matches my bank debit.
+                </span>
+              </label>
             </div>
-            <div className="border-t border-slate-200 pt-2 flex justify-between text-sm font-black text-slate-900">
-              <span>Total Payable Amount:</span>
-              <span className="text-brand-800">₹{settings.listingFeeAmount || 10}.00</span>
-            </div>
-          </div>
 
-          {/* Payment Method Selector */}
-          <div className="max-w-md mx-auto space-y-3">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Select Preferred Payment Method
-            </label>
-
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('upi')}
-                className={`p-3 rounded-xl border text-center transition cursor-pointer ${
-                  paymentMethod === 'upi'
-                    ? 'border-brand-800 bg-brand-50 text-brand-900 ring-2 ring-brand-800/20'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <div className="text-lg mb-1">📱</div>
-                <span className="text-xs font-bold block">UPI / QR</span>
-                <span className="text-[10px] text-slate-400 block">PhonePe, GPay</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('card')}
-                className={`p-3 rounded-xl border text-center transition cursor-pointer ${
-                  paymentMethod === 'card'
-                    ? 'border-brand-800 bg-brand-50 text-brand-900 ring-2 ring-brand-800/20'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <div className="text-lg mb-1">💳</div>
-                <span className="text-xs font-bold block">Cards</span>
-                <span className="text-[10px] text-slate-400 block">Debit / Credit</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('netbanking')}
-                className={`p-3 rounded-xl border text-center transition cursor-pointer ${
-                  paymentMethod === 'netbanking'
-                    ? 'border-brand-800 bg-brand-50 text-brand-900 ring-2 ring-brand-800/20'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <div className="text-lg mb-1">🏦</div>
-                <span className="text-xs font-bold block">NetBanking</span>
-                <span className="text-[10px] text-slate-400 block">All Indian Banks</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Payment Failure Alert & Safe Retry */}
-          {paymentStatus === 'failed' && (
-            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl max-w-md mx-auto space-y-2">
-              <div className="flex items-center space-x-2 text-rose-800 font-bold text-xs">
-                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                <span>Payment Incomplete or Cancelled</span>
+            {/* Error Message */}
+            {paymentError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start space-x-1.5">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                <span>{paymentError}</span>
               </div>
-              <p className="text-xs text-rose-700">
-                {paymentError || 'The transaction could not be verified. You can retry immediately without creating duplicate charges.'}
-              </p>
-              <button
-                type="button"
-                onClick={handlePaymentAndSubmit}
-                disabled={loading}
-                className="w-full py-2.5 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-              >
-                Retry Payment (₹{settings.listingFeeAmount || 10})
-              </button>
-            </div>
-          )}
+            )}
 
-          {/* Primary Pay Button */}
-          {paymentStatus !== 'failed' && (
-            <div className="max-w-md mx-auto pt-2">
+            {/* Submit Button */}
+            <div className="pt-2">
               <button
                 type="button"
-                onClick={handlePaymentAndSubmit}
-                disabled={loading}
-                className="w-full py-3.5 bg-brand-800 hover:bg-brand-900 text-white rounded-2xl font-extrabold text-sm shadow-md transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+                onClick={handleManualPaymentSubmit}
+                disabled={loading || uploadingScreenshot}
+                className="w-full py-3.5 bg-brand-800 hover:bg-brand-900 text-white rounded-2xl font-black text-sm shadow-md transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
               >
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Processing Payment via Razorpay...</span>
+                    <span>Submitting Details for Verification...</span>
                   </>
                 ) : (
                   <>
                     <ShieldCheck className="w-4 h-4 text-emerald-300" />
-                    <span>Pay ₹{settings.listingFeeAmount || 10} via Razorpay Checkout</span>
+                    <span>Submit Payment Proof for Admin Verification</span>
                   </>
                 )}
               </button>
-              <p className="text-[11px] text-slate-400 text-center mt-2">
-                🔒 256-Bit SSL Encrypted Razorpay Checkout. Never refresh your browser while transaction is pending.
-              </p>
             </div>
-          )}
+
+          </div>
 
         </div>
       )}
 
       {/* ======================================================== */}
-      {/* STEP 7: SUCCESS RECEIPT & ADMIN APPROVAL STATUS */}
+      {/* STEP 7: PAYMENT SUBMITTED CONFIRMATION */}
       {/* ======================================================== */}
-      {currentStep === 7 && receipt && createdProperty && (
+      {currentStep === 7 && (
         <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-elevated text-center max-w-lg mx-auto space-y-6">
           <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto text-3xl shadow-inner">
             <CheckCircle2 className="w-9 h-9" />
@@ -2186,56 +2142,52 @@ export const AddPropertyWizard: React.FC = () => {
 
           <div className="space-y-1">
             <h2 className="text-xl sm:text-2xl font-black text-slate-900">
-              Payment Successful & Verified!
+              Payment Details Submitted!
             </h2>
             <p className="text-xs text-slate-600">
-              Your ₹{Number(receipt.amount).toFixed(2)} listing fee has been confirmed. The property has moved to the Admin Approval Queue.
+              Your ₹{settings.listingFeeAmount || 10}.00 listing fee payment details have been recorded and sent to the SPP Nestora Admin team for bank verification.
             </p>
           </div>
 
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left text-xs space-y-2.5">
             <div className="flex justify-between items-center pb-2 border-b border-slate-200/70">
               <span className="text-slate-500 font-medium">Property Code:</span>
-              <span className="font-mono font-bold text-slate-900">{createdProperty.propertyCode}</span>
+              <span className="font-mono font-bold text-slate-900">{submittedUtrInfo?.propertyCode || createdProperty?.propertyCode}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-500">Property Title:</span>
-              <span className="font-semibold text-slate-900 truncate max-w-[200px]">{createdProperty.title}</span>
+              <span className="font-semibold text-slate-900 truncate max-w-[200px]">{createdProperty?.title || formData.title}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-500">Listing Category:</span>
-              <span className="font-bold text-slate-900 uppercase">
-                {createdProperty.type === 'land_sale' ? 'Land for Sale' : createdProperty.type === 'house_rent' ? 'House for Rent' : 'House for Sale'}
-              </span>
+              <span className="text-slate-500">Fixed Listing Fee:</span>
+              <span className="font-bold text-slate-900">₹{settings.listingFeeAmount || 10}.00</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-500">Listing Fee Paid:</span>
-              <span className="font-bold text-slate-900">₹{Number(receipt.amount).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500">Payment ID:</span>
-              <span className="font-mono text-[11px] font-bold text-brand-800 bg-brand-50 px-2 py-0.5 rounded">
-                {receipt.transactionRef || receipt.id}
+              <span className="text-slate-500">Submitted UTR:</span>
+              <span className="font-mono text-[11px] font-bold text-brand-900 bg-brand-50 px-2 py-0.5 rounded border border-brand-200">
+                {submittedUtrInfo?.utr || utrNumber}
               </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-500">Payment Status:</span>
-              <span className="font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                Verified (Success)
+              <span className="font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded text-[11px]">
+                Under Admin Bank Verification
               </span>
             </div>
             <div className="flex justify-between items-center pt-2 border-t border-slate-200/70">
-              <span className="text-slate-500">Property Visibility:</span>
-              <span className="font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full">
-                Pending Admin Review
+              <span className="text-slate-500">Public Visibility:</span>
+              <span className="font-bold text-slate-600 bg-slate-200 px-2.5 py-0.5 rounded-full text-[10px]">
+                Hidden (Awaiting Approval)
               </span>
             </div>
           </div>
 
-          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs text-amber-900 space-y-1">
-            <span className="font-bold block">Next Steps in Admin Workflow:</span>
+          <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs text-amber-900 space-y-1">
+            <span className="font-bold block">What Happens Next?</span>
             <p className="text-[11px] text-amber-800 leading-relaxed">
-              SPP Nestora administrators will review your property documentation and location details. Once verified, the listing will become publicly searchable on the website.
+              1. <strong>Bank Verification:</strong> SPP Nestora Admin checks the ₹10 debit in our bank statement against your UTR.<br />
+              2. <strong>Listing Review:</strong> Once verified, the property proceeds to listing details review.<br />
+              3. <strong>Public Launch:</strong> Upon admin approval, your property goes live across Tamil Nadu searches.
             </p>
           </div>
 
@@ -2246,12 +2198,14 @@ export const AddPropertyWizard: React.FC = () => {
             >
               Go to Dealer Dashboard
             </button>
-            <button
-              onClick={() => navigate(`/properties/${createdProperty.id}`)}
-              className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
-            >
-              View Property Preview
-            </button>
+            {createdProperty?.id && (
+              <button
+                onClick={() => navigate(`/properties/${createdProperty.id}`)}
+                className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                View Private Preview
+              </button>
+            )}
           </div>
         </div>
       )}

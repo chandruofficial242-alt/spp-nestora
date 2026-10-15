@@ -61,6 +61,7 @@ export const INITIAL_SETTINGS: AdminSettings = {
   officialWhatsApp: '919715673055',
   officialWhatsAppDisplay: '+91 97156 73055',
   officialEmail: 'chandruking901@gmail.com',
+  officialUpiId: 'summada700-4@okaxis',
   supportHours: 'Mon - Sat: 9:00 AM - 8:00 PM IST',
   officeAddress: 'SPP Nestora HQ, 4th Floor, Anna Salai Commercial Hub, Chennai, Tamil Nadu 600002',
   listingFeeAmount: 10,

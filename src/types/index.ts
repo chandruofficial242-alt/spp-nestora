@@ -13,6 +13,9 @@ export type PropertyStatus =
   | 'rented' 
   | 'hidden' 
   | 'pending_payment'
+  | 'payment_submitted'
+  | 'payment_verified'
+  | 'payment_rejected'
   | 'pending_approval' 
   | 'rejected'
   | 'archived';
@@ -32,7 +35,7 @@ export type SiteVisitStatus =
   | 'completed' 
   | 'cancelled';
 
-export type PaymentStatus = 'pending' | 'success' | 'failed' | 'refunded';
+export type PaymentStatus = 'pending' | 'submitted' | 'success' | 'failed' | 'rejected' | 'refunded';
 
 export interface User {
   id: string;
@@ -147,6 +150,13 @@ export interface Property {
   // Dealer reference (Internal only - NEVER exposed to public visitors)
   dealerId: string;
   dealerName?: string;
+
+  // Manual UPI Payment Evidence & Audit
+  paymentUtr?: string;
+  paymentScreenshotUrl?: string;
+  paymentSubmittedAt?: string;
+  paymentVerifiedAt?: string;
+  paymentRejectionReason?: string;
   
   // Metadata & Admin review
   verified: boolean;
@@ -219,7 +229,10 @@ export interface PaymentAuditEntry {
   action: string;
   timestamp: string;
   details?: string;
-  source?: 'checkout_callback' | 'webhook' | 'status_poll' | 'admin_action' | 'system';
+  adminId?: string;
+  adminName?: string;
+  reason?: string;
+  source?: 'dealer_submission' | 'admin_action' | 'checkout_callback' | 'webhook' | 'status_poll' | 'system';
 }
 
 export interface Payment {
@@ -232,12 +245,17 @@ export interface Payment {
   amount: number;
   currency: string;
   purpose: string; // "Property Listing Fee — ₹10"
-  method: 'upi' | 'card' | 'netbanking' | 'wallet';
+  method: 'upi' | 'card' | 'netbanking' | 'wallet' | 'manual_upi';
   status: PaymentStatus;
   transactionRef: string;
+  utr?: string;
+  screenshotUrl?: string;
+  rejectionReason?: string;
+  verifiedByAdminId?: string;
+  verifiedByAdminName?: string;
   orderId?: string;
   paymentId?: string;
-  verificationMethod?: 'razorpay_signature' | 'razorpay_webhook' | 'sandbox_simulation';
+  verificationMethod?: 'manual_upi_verification' | 'razorpay_signature' | 'razorpay_webhook' | 'sandbox_simulation';
   webhookEventId?: string;
   createdAt: string;
   verifiedAt?: string;
@@ -265,6 +283,7 @@ export interface AdminSettings {
   officialWhatsApp: string; // with country code, e.g. 919876543210
   officialWhatsAppDisplay: string;
   officialEmail: string;
+  officialUpiId?: string; // e.g. "summada700-4@okaxis"
   supportHours: string;
   officeAddress: string;
   listingFeeAmount: number; // default 10
