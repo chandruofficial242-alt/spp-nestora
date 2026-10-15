@@ -436,6 +436,197 @@ async function runTests() {
   assert(publicProperties.some(p => p.id === testProp12.id), 'Property only becomes publicly visible after Admin explicitly approves');
 
   // -------------------------------------------------------------
+  // Test Scenario 13: Land for Sale Complete Flow & Area Conversions
+  // -------------------------------------------------------------
+  console.log('\n--- 13. Land for Sale Complete Flow & Area Conversion ---');
+  const landProp = db.createProperty({
+    type: 'land_sale',
+    title: '5.5 Cents DTCP Approved Commercial Plot',
+    landType: 'DTCP Approved Plot',
+    totalArea: 5.5,
+    areaUnit: 'cent',
+    price: 2500000,
+    roadAccess: 'available',
+    dtcpStatus: 'approved',
+    pattaStatus: 'yes',
+    district: 'Chengalpattu',
+    city: 'Chengalpattu',
+    area: 'GST Road',
+    address: 'Survey No. 42/1, GST Road',
+    pincode: '603001'
+  }, { id: 'dealer-01', role: 'dealer', name: 'Dealer' } as any);
+
+  assert(landProp.type === 'land_sale', 'Property type is land_sale');
+  assert(landProp.totalArea === 5.5, 'Total land area is preserved');
+  assert(landProp.areaUnit === 'cent', 'Area unit cent is preserved');
+  // 5.5 * 435.6 = 2396 sq.ft
+  assert(landProp.areaSqft === 2396, 'Cent is converted correctly to 2396 sq.ft');
+  // 2,500,000 / 2396 = 1043 / sq.ft
+  assert(landProp.pricePerSqft === 1043, 'Price per sq.ft is calculated correctly as ₹1,043');
+  assert(landProp.dtcpApproved === true, 'DTCP status is recognized as approved');
+  assert(landProp.pattaAvailable === true, 'Patta status is recognized as yes');
+  assert(landProp.status === 'pending_payment', 'Land starts in pending_payment');
+
+  // Pay ₹10 listing fee
+  const landOrderId = `order_land_${Date.now()}`;
+  const landPayId = `pay_land_${Date.now()}`;
+  const landSig = crypto.createHmac('sha256', (gateway as any).keySecret)
+    .update(`${landOrderId}|${landPayId}`)
+    .digest('hex');
+
+  const landPayRes = await gateway.verifyPayment({
+    orderId: landOrderId,
+    paymentId: landPayId,
+    signature: landSig,
+    dealerId: 'dealer-01',
+    dealerName: 'Dealer',
+    propertyId: landProp.id,
+    propertyTitle: landProp.title,
+    method: 'upi'
+  });
+  assert(landPayRes.success === true, 'Land listing fee paid successfully');
+  assert(db.getPropertyById(landProp.id)?.status === 'pending_approval', 'Land property moves to pending_approval');
+
+  // Admin approves land
+  db.updatePropertyStatus(landProp.id, 'available', 'admin-01', 'admin', 'Approved Land');
+  assert(db.getPropertyById(landProp.id)?.status === 'available', 'Land property becomes publicly available after admin approval');
+
+  // -------------------------------------------------------------
+  // Test Scenario 14: House for Sale Complete Flow
+  // -------------------------------------------------------------
+  console.log('\n--- 14. House for Sale Complete Flow ---');
+  const houseSaleProp = db.createProperty({
+    type: 'house_sale',
+    title: '3 BHK Luxury Independent Villa in Coimbatore',
+    houseType: 'Villa',
+    bhk: '3',
+    bedrooms: 3,
+    bathrooms: 3,
+    builtUpAreaSqft: 1800,
+    plotAreaSqft: 2400,
+    price: 6500000,
+    furnishing: 'semi-furnished',
+    propertyAge: '1-3 Years',
+    parking: 'both',
+    waterSupply: 'Borewell & Corporation',
+    electricitySupply: 'EB 3-Phase',
+    district: 'Coimbatore',
+    city: 'Coimbatore',
+    area: 'Saravanampatti',
+    address: 'Villa 12, Green Meadow Layout',
+    pincode: '641035'
+  }, { id: 'dealer-01', role: 'dealer', name: 'Dealer' } as any);
+
+  assert(houseSaleProp.type === 'house_sale', 'Property type is house_sale');
+  assert(houseSaleProp.houseType === 'Villa', 'House type is Villa');
+  assert(houseSaleProp.bhk === '3', 'BHK is 3');
+  assert(houseSaleProp.bathrooms === 3, 'Bathrooms is 3');
+  assert(houseSaleProp.builtUpAreaSqft === 1800, 'Built-up area is 1800 sq.ft');
+  assert(houseSaleProp.plotAreaSqft === 2400, 'Plot area is 2400 sq.ft');
+  // 6,500,000 / 1800 = 3611
+  assert(houseSaleProp.pricePerSqft === 3611, 'Price per sq.ft is calculated as ₹3,611');
+  assert(houseSaleProp.status === 'pending_payment', 'House starts in pending_payment');
+
+  // Pay ₹10 fee
+  const houseOrderId = `order_house_${Date.now()}`;
+  const housePayId = `pay_house_${Date.now()}`;
+  const houseSig = crypto.createHmac('sha256', (gateway as any).keySecret)
+    .update(`${houseOrderId}|${housePayId}`)
+    .digest('hex');
+
+  await gateway.verifyPayment({
+    orderId: houseOrderId,
+    paymentId: housePayId,
+    signature: houseSig,
+    dealerId: 'dealer-01',
+    dealerName: 'Dealer',
+    propertyId: houseSaleProp.id,
+    propertyTitle: houseSaleProp.title,
+    method: 'upi'
+  });
+  assert(db.getPropertyById(houseSaleProp.id)?.status === 'pending_approval', 'House moves to pending_approval');
+
+  // Admin approves house
+  db.updatePropertyStatus(houseSaleProp.id, 'available', 'admin-01', 'admin', 'Approved Villa');
+  assert(db.getPropertyById(houseSaleProp.id)?.status === 'available', 'House becomes available after admin approval');
+
+  // -------------------------------------------------------------
+  // Test Scenario 15: House for Rent Complete Flow (Rent vs Deposit Separation)
+  // -------------------------------------------------------------
+  console.log('\n--- 15. House for Rent Complete Flow ---');
+  const rentalProp = db.createProperty({
+    type: 'house_rent',
+    title: 'Spacious 2 BHK Family Portion in Madurai',
+    rentalPropertyType: 'Family Portion',
+    suitableFor: ['Family'],
+    bhk: '2',
+    bedrooms: 2,
+    bathrooms: 2,
+    builtUpAreaSqft: 1100,
+    price: 15000,
+    monthlyRent: 15000,
+    depositAmount: 100000,
+    maintenanceFee: 1000,
+    furnishing: 'semi-furnished',
+    availableFrom: 'Immediately',
+    preferredRentalDuration: '11 Months',
+    rentalRules: 'Vegetarians preferred. Family only.',
+    district: 'Madurai',
+    city: 'Madurai',
+    area: 'KK Nagar',
+    address: 'Door 8, 4th Main Road',
+    pincode: '625020'
+  }, { id: 'dealer-01', role: 'dealer', name: 'Dealer' } as any);
+
+  assert(rentalProp.type === 'house_rent', 'Property type is house_rent');
+  assert(rentalProp.price === 15000, 'Price stores monthly rent (₹15,000)');
+  assert(rentalProp.depositAmount === 100000, 'Deposit amount stores ₹1,00,000 separately');
+  assert(rentalProp.maintenanceFee === 1000, 'Maintenance fee is ₹1,000');
+  assert(rentalProp.rentalPropertyType === 'Family Portion', 'Rental type is Family Portion');
+  assert(rentalProp.status === 'pending_payment', 'Rental starts in pending_payment');
+
+  // Pay ₹10 fee
+  const rentOrderId = `order_rent_${Date.now()}`;
+  const rentPayId = `pay_rent_${Date.now()}`;
+  const rentSig = crypto.createHmac('sha256', (gateway as any).keySecret)
+    .update(`${rentOrderId}|${rentPayId}`)
+    .digest('hex');
+
+  await gateway.verifyPayment({
+    orderId: rentOrderId,
+    paymentId: rentPayId,
+    signature: rentSig,
+    dealerId: 'dealer-01',
+    dealerName: 'Dealer',
+    propertyId: rentalProp.id,
+    propertyTitle: rentalProp.title,
+    method: 'upi'
+  });
+  assert(db.getPropertyById(rentalProp.id)?.status === 'pending_approval', 'Rental moves to pending_approval');
+
+  // Admin approves rental
+  db.updatePropertyStatus(rentalProp.id, 'available', 'admin-01', 'admin', 'Approved Rental');
+  assert(db.getPropertyById(rentalProp.id)?.status === 'available', 'Rental becomes available after admin approval');
+
+  // -------------------------------------------------------------
+  // Test Scenario 16: Multi-Unit Land Area Conversions
+  // -------------------------------------------------------------
+  console.log('\n--- 16. Multi-Unit Land Area Conversions ---');
+  // 1 Acre = 43,560 sq.ft
+  const acreLand = db.createProperty({ type: 'land_sale', totalArea: 1, areaUnit: 'acre', price: 5000000 }, { id: 'd1', role: 'dealer' } as any);
+  assert(acreLand.areaSqft === 43560, '1 Acre converts to 43,560 sq.ft');
+  assert(acreLand.pricePerSqft === Math.round(5000000 / 43560), '1 Acre price per sq.ft is calculated correctly');
+
+  // 1 Ground = 2,400 sq.ft
+  const groundLand = db.createProperty({ type: 'land_sale', totalArea: 2, areaUnit: 'ground', price: 4800000 }, { id: 'd1', role: 'dealer' } as any);
+  assert(groundLand.areaSqft === 4800, '2 Grounds converts to 4,800 sq.ft');
+  assert(groundLand.pricePerSqft === 1000, '2 Grounds at 48L is exactly ₹1,000 / sq.ft');
+
+  // 1 Hectare = 107,639 sq.ft
+  const hectareLand = db.createProperty({ type: 'land_sale', totalArea: 1, areaUnit: 'hectare', price: 10000000 }, { id: 'd1', role: 'dealer' } as any);
+  assert(hectareLand.areaSqft === 107639, '1 Hectare converts to 107,639 sq.ft');
+
+  // -------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------
   console.log(`\n=============================================================`);

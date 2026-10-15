@@ -88,9 +88,9 @@ export const PropertiesPage: React.FC<Props> = ({ presetType }) => {
       result = result.filter(p => p.price <= (filters.maxPrice || Infinity));
     }
 
-    // Bedrooms
+    // Bedrooms / BHK
     if (filters.bedrooms && filters.bedrooms !== 'any') {
-      result = result.filter(p => p.bedrooms === filters.bedrooms);
+      result = result.filter(p => p.bedrooms === filters.bedrooms || String(p.bhk) === String(filters.bedrooms));
     }
 
     // Verified Only
@@ -100,7 +100,7 @@ export const PropertiesPage: React.FC<Props> = ({ presetType }) => {
 
     // DTCP Only
     if (filters.dtcpReraOnly) {
-      result = result.filter(p => p.dtcpApproved || p.reraApproved);
+      result = result.filter(p => p.dtcpApproved || p.reraApproved || p.dtcpStatus === 'approved');
     }
 
     // Search Query
@@ -110,6 +110,8 @@ export const PropertiesPage: React.FC<Props> = ({ presetType }) => {
         p.title.toLowerCase().includes(q) ||
         (p.titleTa && p.titleTa.toLowerCase().includes(q)) ||
         p.area.toLowerCase().includes(q) ||
+        (p.city && p.city.toLowerCase().includes(q)) ||
+        (p.locality && p.locality.toLowerCase().includes(q)) ||
         p.district.toLowerCase().includes(q) ||
         p.propertyCode.toLowerCase().includes(q)
       );

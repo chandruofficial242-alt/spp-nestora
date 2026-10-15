@@ -107,6 +107,36 @@ export interface Property {
   ageOfProperty?: string;
   waterSource?: string[];
   
+  // Specific to Land for Sale
+  landType?: string; // Residential Plot, DTCP Approved Plot, Agricultural Land, Farm Land, Commercial Land, Other
+  totalArea?: number;
+  areaUnit?: 'sqft' | 'cent' | 'ground' | 'acre' | 'hectare';
+  pricePerSqft?: number;
+  roadAccess?: 'available' | 'not_available';
+  dtcpStatus?: 'approved' | 'not_approved' | 'not_applicable' | 'unknown';
+  pattaStatus?: 'yes' | 'no' | 'unknown';
+
+  // Specific to House for Sale
+  houseType?: string; // Independent House, Villa, Apartment, Flat, Other
+  bhk?: string | number; // 1, 2, 3, 4, 5+
+  builtUpAreaSqft?: number;
+  plotAreaSqft?: number;
+  propertyAge?: string; // New Construction, Under 1 Year, 1-5 Years, 5-10 Years, 10+ Years
+  totalFloors?: number;
+
+  // Specific to House for Rent
+  rentalPropertyType?: string; // Independent House, Family Portion, Bachelor Room, Apartment, Flat, Villa, Other
+  suitableFor?: string[]; // Family, Bachelors, Working Professionals, Students, Anyone
+  monthlyRent?: number;
+  availableFrom?: string;
+  preferredRentalDuration?: string; // Short-Term, 6 Months, 11 Months, Long-Term, Other
+  rentalRules?: string;
+
+  // Utilities & Shared Specs
+  waterSupply?: string; // Corporation, Borewell, Both, Tanker
+  electricitySupply?: string; // 3-Phase, Single-Phase, Solar
+  landmark?: string;
+
   // Features & Amenities
   amenities: string[];
   
@@ -137,9 +167,9 @@ export interface PropertyFilter {
   maxPrice?: number;
   minSqft?: number;
   maxSqft?: number;
-  bedrooms?: number | 'any';
+  bedrooms?: number | string | 'any';
   furnishing?: string;
-  parking?: boolean;
+  parking?: boolean | string;
   verifiedOnly?: boolean;
   dtcpReraOnly?: boolean;
   searchQuery?: string;

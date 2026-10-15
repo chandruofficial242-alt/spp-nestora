@@ -261,6 +261,32 @@ router.post('/properties', authenticate, requireRole(['dealer', 'admin']), async
       return res.status(403).json({ error: 'Your dealer account is currently under review by SPP Nestora Admin.' });
     }
 
+    const { title, type, price, district, city } = req.body;
+
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ error: 'Property title is required.' });
+    }
+
+    if (!['land_sale', 'house_sale', 'house_rent'].includes(type)) {
+      return res.status(400).json({ error: 'Valid property type (land_sale, house_sale, or house_rent) is required.' });
+    }
+
+    if (price === undefined || Number(price) <= 0 || isNaN(Number(price))) {
+      return res.status(400).json({ 
+        error: type === 'house_rent' 
+          ? 'Valid positive monthly rent is required.' 
+          : 'Valid positive selling price is required.' 
+      });
+    }
+
+    if (!district || typeof district !== 'string' || !district.trim()) {
+      return res.status(400).json({ error: 'Tamil Nadu district is required.' });
+    }
+
+    if (!city || typeof city !== 'string' || !city.trim()) {
+      return res.status(400).json({ error: 'City / Town / Village is required.' });
+    }
+
     const created = db.createProperty(req.body, dealer);
 
     // In-app Notification for Admin

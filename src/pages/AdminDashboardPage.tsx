@@ -33,7 +33,9 @@ import {
   UserCheck,
   RefreshCw,
   FileText,
-  Filter
+  Filter,
+  MapPin,
+  Eye
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
@@ -322,53 +324,195 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {pendingProperties.map((prop: Property) => (
-                <div key={prop.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-subtle space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center space-x-4">
-                      <img
-                        src={prop.images[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=300&q=80'}
-                        alt=""
-                        className="w-20 h-16 rounded-xl object-cover bg-slate-100"
-                      />
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-mono font-bold text-xs bg-brand-50 text-brand-900 px-2 py-0.5 rounded">
-                            {prop.propertyCode}
+              {pendingProperties.map((prop: Property) => {
+                const isLand = prop.type === 'land_sale';
+                const isRent = prop.type === 'house_rent';
+
+                return (
+                  <div key={prop.id} className="bg-white rounded-3xl border border-slate-200 p-6 shadow-subtle space-y-4">
+                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                      
+                      {/* Media & Key Info */}
+                      <div className="flex items-start space-x-4">
+                        <div className="relative w-28 h-24 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
+                          <img
+                            src={prop.images[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=300&q=80'}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                          <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
+                            📷 {prop.images.length}
                           </span>
-                          <span className="text-xs font-semibold text-slate-500 uppercase">{prop.type}</span>
                         </div>
-                        <h3 className="font-bold text-slate-900 text-base mt-0.5">{prop.title}</h3>
-                        <p className="text-xs text-slate-500">{prop.locality}, {prop.district} • {formatPrice(prop.price, prop.type, language)}</p>
+
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono font-bold text-xs bg-brand-50 text-brand-900 border border-brand-200 px-2 py-0.5 rounded">
+                              {prop.propertyCode}
+                            </span>
+                            
+                            <span className={`text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-md ${
+                              isLand
+                                ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                : isRent
+                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                : 'bg-brand-100 text-brand-900 border border-brand-300'
+                            }`}>
+                              {isLand ? '🏞️ Land for Sale' : isRent ? '🏘️ House for Rent' : '🏠 House for Sale'}
+                            </span>
+
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              {prop.district}, Tamil Nadu
+                            </span>
+                          </div>
+
+                          <h3 className="font-bold text-slate-900 text-base leading-snug">{prop.title}</h3>
+                          
+                          <p className="text-xs text-slate-600 flex items-center">
+                            <MapPin className="w-3.5 h-3.5 text-emerald-600 mr-1 flex-shrink-0" />
+                            <span>{prop.address || prop.area}, {prop.city} - {prop.pincode}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Pricing & Approve / Reject Action Buttons */}
+                      <div className="flex flex-col sm:flex-row lg:flex-col items-start lg:items-end justify-between gap-3 flex-shrink-0">
+                        <div className="text-left lg:text-right">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">
+                            {isRent ? 'Monthly Rent' : 'Selling Price'}
+                          </span>
+                          <span className="text-xl font-black text-brand-900">
+                            {formatPrice(prop.price, prop.type, language)}
+                            {isRent && <span className="text-xs font-semibold text-slate-500"> / mo</span>}
+                          </span>
+                          {isRent && prop.depositAmount && (
+                            <span className="text-xs text-amber-900 font-bold block">
+                              Deposit: ₹{prop.depositAmount.toLocaleString('en-IN')}
+                            </span>
+                          )}
+                          {!isRent && prop.pricePerSqft && (
+                            <span className="text-xs text-emerald-700 font-bold block">
+                              ₹{prop.pricePerSqft.toLocaleString()} / Sq.Ft
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center space-x-2 pt-1">
+                          <Link
+                            to={`/properties/${prop.id}`}
+                            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition"
+                            title="Preview Public Listing"
+                          >
+                            <Eye className="w-3.5 h-3.5 inline mr-1" />
+                            <span>View</span>
+                          </Link>
+                          
+                          <button
+                            onClick={() => approveProperty(prop.id)}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Approve</span>
+                          </button>
+                          
+                          <button
+                            onClick={() => handleOpenReject(prop.id)}
+                            className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center space-x-1 cursor-pointer"
+                          >
+                            <XCircle className="w-4 h-4" />
+                            <span>Reject</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => approveProperty(prop.id)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Approve Listing</span>
-                      </button>
-                      <button
-                        onClick={() => handleOpenReject(prop.id)}
-                        className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        <span>Reject</span>
-                      </button>
-                    </div>
-                  </div>
+                    {/* Vertical-Specific Technical Specs Row */}
+                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs">
+                      {isLand ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Land Area</span>
+                            <span className="font-bold text-slate-900">{prop.totalArea ? `${prop.totalArea} ${prop.areaUnit || 'Cent'}` : `${prop.areaSqft} Sq.Ft`}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Land Type</span>
+                            <span className="font-bold text-slate-900">{prop.landType || 'Residential Plot'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Road Access</span>
+                            <span className="font-bold text-slate-900 capitalize">{prop.roadAccess || 'Available'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">DTCP Status</span>
+                            <span className="font-bold text-emerald-700 uppercase">{prop.dtcpStatus || (prop.dtcpApproved ? 'Approved' : 'Unknown')}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Patta</span>
+                            <span className="font-bold text-slate-900 uppercase">{prop.pattaStatus || (prop.pattaAvailable ? 'Yes' : 'Unknown')}</span>
+                          </div>
+                        </div>
+                      ) : isRent ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Config / Rooms</span>
+                            <span className="font-bold text-slate-900">{prop.bhk ? `${prop.bhk} BHK` : `${prop.bedrooms || 1} Rooms`}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Built-up</span>
+                            <span className="font-bold text-slate-900">{prop.builtUpAreaSqft || prop.areaSqft} Sq.Ft</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Furnishing</span>
+                            <span className="font-bold text-slate-900 capitalize">{prop.furnishing || 'Semi-Furnished'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Suitable For</span>
+                            <span className="font-bold text-slate-900 truncate block">{Array.isArray(prop.suitableFor) ? prop.suitableFor.join(', ') : (prop.suitableFor || 'Family')}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Available From</span>
+                            <span className="font-bold text-slate-900">{prop.availableFrom || 'Immediately'}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Configuration</span>
+                            <span className="font-bold text-slate-900">{prop.bhk ? `${prop.bhk} BHK` : `${prop.bedrooms || 2} BHK`} ({prop.bathrooms || 2} Bath)</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Built-up Area</span>
+                            <span className="font-bold text-slate-900">{prop.builtUpAreaSqft || prop.areaSqft} Sq.Ft</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">House Type</span>
+                            <span className="font-bold text-slate-900">{prop.houseType || 'Independent House'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Furnishing</span>
+                            <span className="font-bold text-slate-900 capitalize">{prop.furnishing || 'Semi-Furnished'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Age / Parking</span>
+                            <span className="font-bold text-slate-900">{prop.propertyAge || '1-3 Yrs'} • {prop.parking || 'Both'}</span>
+                          </div>
+                        </div>
+                      )}
 
-                  <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-700">
-                    <p><strong>Description:</strong> {prop.description}</p>
-                    <p className="mt-1 text-slate-500">
-                      <strong>Dealer:</strong> {prop.dealerName} (ID: {prop.dealerId})
-                    </p>
+                      {/* Description & Dealer Footer */}
+                      <div className="pt-2.5 mt-2.5 border-t border-slate-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-600">
+                        <div className="truncate max-w-xl">
+                          <strong className="text-slate-800">Description:</strong> {prop.description || 'No description provided.'}
+                        </div>
+                        <div className="text-slate-500 flex-shrink-0">
+                          <strong className="text-slate-700">Submitted by:</strong> {prop.dealerName} (ID: <span className="font-mono">{prop.dealerId}</span>)
+                        </div>
+                      </div>
+                    </div>
+
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -19,7 +19,11 @@ import {
   CheckCircle2, 
   ArrowLeft,
   FileText,
-  Sparkles
+  Sparkles,
+  Building2,
+  Trees,
+  Home,
+  IndianRupee
 } from 'lucide-react';
 
 export const PropertyDetailPage: React.FC = () => {
@@ -180,38 +184,229 @@ export const PropertyDetailPage: React.FC = () => {
               propertyTitle={property.title}
             />
 
-            {/* Key Specs Highlights Row */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-subtle grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-[11px] text-slate-400 block font-bold uppercase">{t.property.sqft}</span>
-                <span className="text-lg font-black text-slate-900 mt-1 block">
-                  {formatSqft(property.areaSqft, language)}
-                </span>
-              </div>
+            {/* Key Specs Highlights Row - Tailored to Property Type */}
+            {isLand ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-subtle space-y-4">
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
+                  <Trees className="w-4 h-4 text-emerald-600" />
+                  <span>Land & Plot Specifications</span>
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Land Area</span>
+                    <span className="text-lg font-black text-slate-900 mt-1 block">
+                      {property.totalArea ? `${property.totalArea} ${property.areaUnit || 'Cent'}` : formatSqft(property.areaSqft, language)}
+                    </span>
+                    {property.totalArea && property.areaSqft && (
+                      <span className="text-[10px] text-slate-500 font-medium">({property.areaSqft.toLocaleString()} Sq.Ft)</span>
+                    )}
+                  </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-[11px] text-slate-400 block font-bold uppercase">
-                  {isLand ? 'Plot Layout' : t.property.bhk}
-                </span>
-                <span className="text-lg font-black text-slate-900 mt-1 block">
-                  {isLand ? (property.plotDimensions || 'Standard') : `${property.bedrooms || 2} BHK`}
-                </span>
-              </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Rate per Sq.Ft</span>
+                    <span className="text-lg font-black text-emerald-800 mt-1 block">
+                      {property.pricePerSqft ? `₹${property.pricePerSqft.toLocaleString()} / sq.ft` : (property.areaSqft > 0 ? `₹${Math.round(property.price / property.areaSqft).toLocaleString()} / sq.ft` : 'N/A')}
+                    </span>
+                  </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-[11px] text-slate-400 block font-bold uppercase">{t.property.facing}</span>
-                <span className="text-lg font-black text-slate-900 mt-1 block">
-                  {property.facing || 'East'}
-                </span>
-              </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Land Type</span>
+                    <span className="text-base font-black text-slate-900 mt-1 block truncate">
+                      {property.landType || 'Residential Plot'}
+                    </span>
+                  </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-[11px] text-slate-400 block font-bold uppercase">Approval</span>
-                <span className="text-lg font-black text-emerald-700 mt-1 block">
-                  {property.dtcpApproved ? 'DTCP' : property.pattaAvailable ? 'Patta' : 'Verified'}
-                </span>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Road Access</span>
+                    <span className="text-base font-black text-slate-900 mt-1 block capitalize">
+                      {property.roadAccess === 'not_available' ? 'No Road Access' : 'Tar / Motor Road'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Additional Land Info Row */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 text-xs border-t border-slate-100">
+                  <div className="p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-100">
+                    <span className="text-slate-500 block text-[10px] font-bold uppercase">DTCP / RERA Approval</span>
+                    <span className="font-extrabold text-emerald-900 uppercase mt-0.5 block">
+                      {property.dtcpStatus || (property.dtcpApproved ? 'Approved' : 'Unknown')}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-500 block text-[10px] font-bold uppercase">Patta Documentation</span>
+                    <span className="font-extrabold text-slate-900 uppercase mt-0.5 block">
+                      {property.pattaStatus === 'yes' || property.pattaAvailable ? 'Patta Available' : (property.pattaStatus || 'Unknown')}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-500 block text-[10px] font-bold uppercase">Zoning Category</span>
+                    <span className="font-extrabold text-slate-900 capitalize mt-0.5 block">
+                      {property.zoningType || 'Residential Layout'}
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : isRent ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-subtle space-y-4">
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
+                  <Home className="w-4 h-4 text-amber-600" />
+                  <span>Rental Property Terms & Specs</span>
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200">
+                    <span className="text-[11px] text-amber-800 block font-bold uppercase">Monthly Rent</span>
+                    <span className="text-xl font-black text-amber-950 mt-1 block">
+                      ₹{property.price?.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-[10px] text-slate-500">per month</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Security Deposit</span>
+                    <span className="text-lg font-black text-slate-900 mt-1 block">
+                      {property.depositAmount ? `₹${property.depositAmount.toLocaleString('en-IN')}` : 'Contact Admin'}
+                    </span>
+                    <span className="text-[10px] text-slate-500">Refundable Advance</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Configuration</span>
+                    <span className="text-lg font-black text-slate-900 mt-1 block">
+                      {property.bhk ? `${property.bhk} BHK` : `${property.bedrooms || 1} Rooms`}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{property.bathrooms || 1} Bathrooms</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Built-up Area</span>
+                    <span className="text-lg font-black text-slate-900 mt-1 block">
+                      {formatSqft(property.builtUpAreaSqft || property.areaSqft, language)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Rental Details Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-xs border-t border-slate-100">
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">Suitable For</span>
+                    <span className="font-extrabold text-slate-900 mt-0.5 block truncate">
+                      {Array.isArray(property.suitableFor) ? property.suitableFor.join(', ') : (property.suitableFor || 'Family / Anyone')}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">Furnishing</span>
+                    <span className="font-extrabold text-slate-900 capitalize mt-0.5 block">
+                      {property.furnishing || 'Semi-Furnished'}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">Available From</span>
+                    <span className="font-extrabold text-slate-900 mt-0.5 block">
+                      {property.availableFrom || 'Immediately'}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">Duration</span>
+                    <span className="font-extrabold text-slate-900 mt-0.5 block">
+                      {property.preferredRentalDuration || '11 Months'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Rental Rules & Utilities */}
+                {(property.rentalRules || property.waterSupply || property.parking) && (
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs space-y-1.5">
+                    {property.rentalRules && (
+                      <p className="text-slate-700">
+                        <strong>Rental Rules:</strong> {property.rentalRules}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-4 text-slate-600 text-[11px] pt-1">
+                      {property.waterSupply && <span>💧 <strong>Water:</strong> {property.waterSupply}</span>}
+                      {property.electricitySupply && <span>⚡ <strong>Power:</strong> {property.electricitySupply}</span>}
+                      {property.parking && <span>🚗 <strong>Parking:</strong> {property.parking}</span>}
+                      {property.maintenanceFee ? <span>🧹 <strong>Maintenance:</strong> ₹{property.maintenanceFee}/mo</span> : null}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-subtle space-y-4">
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
+                  <Building2 className="w-4 h-4 text-brand-700" />
+                  <span>House & Villa Specifications</span>
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Configuration</span>
+                    <span className="text-lg font-black text-slate-900 mt-1 block">
+                      {property.bhk ? `${property.bhk} BHK` : `${property.bedrooms || 2} BHK`}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{property.bathrooms || 2} Bathrooms</span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Built-up Area</span>
+                    <span className="text-lg font-black text-slate-900 mt-1 block">
+                      {formatSqft(property.builtUpAreaSqft || property.areaSqft, language)}
+                    </span>
+                    {property.plotAreaSqft && (
+                      <span className="text-[10px] text-slate-500 font-medium">Plot: {property.plotAreaSqft} Sq.Ft</span>
+                    )}
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">Rate per Sq.Ft</span>
+                    <span className="text-lg font-black text-brand-900 mt-1 block">
+                      {property.pricePerSqft ? `₹${property.pricePerSqft.toLocaleString()} / sq.ft` : (property.areaSqft > 0 ? `₹${Math.round(property.price / property.areaSqft).toLocaleString()} / sq.ft` : 'N/A')}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[11px] text-slate-400 block font-bold uppercase">House Type</span>
+                    <span className="text-base font-black text-slate-900 mt-1 block truncate">
+                      {property.houseType || 'Independent House'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Additional House Info Row */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-xs border-t border-slate-100">
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">Furnishing</span>
+                    <span className="font-extrabold text-slate-900 capitalize mt-0.5 block">
+                      {property.furnishing || 'Semi-Furnished'}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">Property Age</span>
+                    <span className="font-extrabold text-slate-900 mt-0.5 block">
+                      {property.propertyAge || property.ageOfProperty || '1-3 Years'}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">Parking</span>
+                    <span className="font-extrabold text-slate-900 capitalize mt-0.5 block">
+                      {property.parking || 'Both'}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase">Facing / Floors</span>
+                    <span className="font-extrabold text-slate-900 mt-0.5 block">
+                      {property.facing || 'East'} • {property.floors || 1} Floors
+                    </span>
+                  </div>
+                </div>
+
+                {/* Utilities */}
+                {(property.waterSupply || property.electricitySupply) && (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs flex flex-wrap items-center gap-4 text-slate-700">
+                    {property.waterSupply && <span>💧 <strong>Water Supply:</strong> {property.waterSupply}</span>}
+                    {property.electricitySupply && <span>⚡ <strong>Electricity:</strong> {property.electricitySupply}</span>}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Description */}
             <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-subtle space-y-3">
@@ -256,13 +451,33 @@ export const PropertyDetailPage: React.FC = () => {
               {/* Price Banner */}
               <div>
                 <span className="text-xs text-slate-400 block font-bold uppercase tracking-wider">
-                  {isRent ? 'Expected Monthly Rent' : 'Expected Price'}
+                  {isRent ? 'Expected Monthly Rent' : 'Expected Selling Price'}
                 </span>
                 <div className="text-3xl font-black text-brand-900 mt-0.5">
                   {formatPrice(property.price, property.type, language)}
+                  {isRent && <span className="text-sm font-semibold text-slate-500"> / month</span>}
                 </div>
+                {isRent && property.depositAmount ? (
+                  <div className="mt-2.5 p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-xs text-amber-950 space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 text-[11px] font-bold uppercase">Refundable Security Deposit:</span>
+                      <span className="font-extrabold text-sm">₹{property.depositAmount.toLocaleString('en-IN')}</span>
+                    </div>
+                    {property.maintenanceFee ? (
+                      <div className="flex justify-between items-center pt-1 border-t border-amber-200/60 text-[11px]">
+                        <span className="text-slate-500">Maintenance:</span>
+                        <span className="font-bold text-slate-800">₹{property.maintenanceFee.toLocaleString('en-IN')} / mo</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {!isRent && (property.pricePerSqft || (property.areaSqft > 0 && property.price > 0)) ? (
+                  <div className="mt-2 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 inline-block">
+                    Rate: ₹{(property.pricePerSqft || Math.round(property.price / property.areaSqft)).toLocaleString()} / Sq.Ft
+                  </div>
+                ) : null}
                 {property.priceNegotiable && (
-                  <span className="inline-block mt-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  <span className="inline-block mt-2 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                     Price Negotiable via Admin
                   </span>
                 )}

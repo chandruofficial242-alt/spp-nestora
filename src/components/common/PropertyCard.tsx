@@ -116,36 +116,72 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
 
             {/* Key Specs */}
             <div className="flex flex-wrap items-center gap-3 md:gap-4 my-4 py-3 border-y border-slate-100 text-slate-700 text-xs md:text-sm">
-              <div className="flex items-center space-x-1.5">
-                <Maximize2 className="w-4 h-4 text-slate-400" />
-                <span className="font-semibold">{formatSqft(property.areaSqft, language)}</span>
-              </div>
-
-              {property.bedrooms && (
-                <div className="flex items-center space-x-1.5">
-                  <Bed className="w-4 h-4 text-slate-400" />
-                  <span>{property.bedrooms} BHK</span>
-                </div>
-              )}
-
-              {property.bathrooms && (
-                <div className="flex items-center space-x-1.5">
-                  <Bath className="w-4 h-4 text-slate-400" />
-                  <span>{property.bathrooms} {t.property.baths}</span>
-                </div>
-              )}
-
-              {property.facing && (
-                <div className="flex items-center space-x-1.5">
-                  <Compass className="w-4 h-4 text-slate-400" />
-                  <span>{property.facing}</span>
-                </div>
-              )}
-
-              {property.dtcpApproved && (
-                <span className="bg-emerald-50 text-emerald-800 text-[11px] font-semibold px-2 py-0.5 rounded border border-emerald-200">
-                  DTCP
-                </span>
+              {isLand ? (
+                <>
+                  <div className="flex items-center space-x-1.5">
+                    <Maximize2 className="w-4 h-4 text-emerald-600" />
+                    <span className="font-semibold">
+                      {property.totalArea ? `${property.totalArea} ${property.areaUnit || 'Cent'}` : formatSqft(property.areaSqft, language)}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1.5 text-slate-600">
+                    <span className="font-medium">{property.landType || 'Residential Plot'}</span>
+                  </div>
+                  {(property.pricePerSqft || (property.areaSqft > 0 && property.price > 0)) && (
+                    <div className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-xs">
+                      ₹{(property.pricePerSqft || Math.round(property.price / property.areaSqft)).toLocaleString()} / sq.ft
+                    </div>
+                  )}
+                  {property.dtcpApproved && (
+                    <span className="bg-emerald-50 text-emerald-800 text-[11px] font-semibold px-2 py-0.5 rounded border border-emerald-200">
+                      DTCP
+                    </span>
+                  )}
+                  {property.pattaAvailable && (
+                    <span className="bg-slate-100 text-slate-800 text-[11px] font-semibold px-2 py-0.5 rounded border border-slate-200">
+                      Patta
+                    </span>
+                  )}
+                </>
+              ) : isRent ? (
+                <>
+                  <div className="flex items-center space-x-1.5">
+                    <Bed className="w-4 h-4 text-amber-600" />
+                    <span className="font-semibold">{property.bhk ? `${property.bhk} BHK` : `${property.bedrooms || 1} Rooms`}</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <Maximize2 className="w-4 h-4 text-slate-400" />
+                    <span>{formatSqft(property.builtUpAreaSqft || property.areaSqft, language)}</span>
+                  </div>
+                  {property.depositAmount && (
+                    <span className="bg-amber-50 text-amber-900 text-[11px] font-bold px-2 py-0.5 rounded border border-amber-200">
+                      Deposit: ₹{property.depositAmount.toLocaleString('en-IN')}
+                    </span>
+                  )}
+                  {property.furnishing && (
+                    <span className="text-slate-500 capitalize">{property.furnishing}</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center space-x-1.5">
+                    <Bed className="w-4 h-4 text-slate-400" />
+                    <span className="font-semibold">{property.bhk ? `${property.bhk} BHK` : `${property.bedrooms || 2} BHK`}</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <Maximize2 className="w-4 h-4 text-slate-400" />
+                    <span>{formatSqft(property.builtUpAreaSqft || property.areaSqft, language)}</span>
+                  </div>
+                  {property.bathrooms && (
+                    <div className="flex items-center space-x-1.5">
+                      <Bath className="w-4 h-4 text-slate-400" />
+                      <span>{property.bathrooms} {t.property.baths}</span>
+                    </div>
+                  )}
+                  {property.furnishing && (
+                    <span className="text-slate-500 capitalize">{property.furnishing}</span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -154,10 +190,11 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
           <div className="flex items-center justify-between pt-2">
             <div>
               <span className="text-xs text-slate-400 block font-medium">
-                {isRent ? t.property.rent : t.property.sale}
+                {isRent ? 'Monthly Rent' : t.property.sale}
               </span>
               <span className="text-xl md:text-2xl font-extrabold text-brand-900">
                 {formatPrice(property.price, property.type, language)}
+                {isRent && <span className="text-xs font-semibold text-slate-500"> / mo</span>}
               </span>
             </div>
 
@@ -251,24 +288,70 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
 
           {/* Specs Row */}
           <div className="grid grid-cols-3 gap-2 my-3 py-2.5 border-y border-slate-100 text-center text-xs">
-            <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
-              <span className="text-[10px] text-slate-400 block uppercase font-medium">{t.property.sqft}</span>
-              <span className="font-bold text-slate-800 truncate block">{property.areaSqft}</span>
-            </div>
-
-            <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
-              <span className="text-[10px] text-slate-400 block uppercase font-medium">
-                {isLand ? 'Zoning' : t.property.bhk}
-              </span>
-              <span className="font-bold text-slate-800 truncate block">
-                {isLand ? (property.zoningType || 'Plots') : (property.bedrooms ? `${property.bedrooms} BHK` : '1+')}
-              </span>
-            </div>
-
-            <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
-              <span className="text-[10px] text-slate-400 block uppercase font-medium">{t.property.facing}</span>
-              <span className="font-bold text-slate-800 truncate block">{property.facing || 'East'}</span>
-            </div>
+            {isLand ? (
+              <>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Area</span>
+                  <span className="font-bold text-slate-800 truncate block">
+                    {property.totalArea ? `${property.totalArea} ${property.areaUnit || 'Cent'}` : `${property.areaSqft} Sq.Ft`}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Type</span>
+                  <span className="font-bold text-slate-800 truncate block">
+                    {property.landType || 'Plot'}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Approval</span>
+                  <span className="font-bold text-emerald-700 truncate block uppercase">
+                    {property.dtcpStatus || (property.dtcpApproved ? 'DTCP' : (property.pattaAvailable ? 'Patta' : 'Verified'))}
+                  </span>
+                </div>
+              </>
+            ) : isRent ? (
+              <>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Area</span>
+                  <span className="font-bold text-slate-800 truncate block">
+                    {property.builtUpAreaSqft || property.areaSqft} Sq.Ft
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Config</span>
+                  <span className="font-bold text-slate-800 truncate block">
+                    {property.bhk ? `${property.bhk} BHK` : `${property.bedrooms || 1} Rooms`}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Deposit</span>
+                  <span className="font-bold text-amber-900 truncate block">
+                    {property.depositAmount ? `₹${(property.depositAmount / 1000).toFixed(0)}k` : 'Contact'}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Built-up</span>
+                  <span className="font-bold text-slate-800 truncate block">
+                    {property.builtUpAreaSqft || property.areaSqft} Sq.Ft
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Config</span>
+                  <span className="font-bold text-slate-800 truncate block">
+                    {property.bhk ? `${property.bhk} BHK` : `${property.bedrooms || 2} BHK`}
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100/80">
+                  <span className="text-[10px] text-slate-400 block uppercase font-medium">Furnishing</span>
+                  <span className="font-bold text-slate-800 truncate block capitalize">
+                    {property.furnishing || 'Semi'}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -276,10 +359,11 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
         <div className="flex items-center justify-between pt-1">
           <div>
             <span className="text-[10px] text-slate-400 block font-medium">
-              {isRent ? t.property.rent : t.property.sale}
+              {isRent ? 'Monthly Rent' : t.property.sale}
             </span>
             <span className="text-lg sm:text-xl font-extrabold text-brand-900 tracking-tight">
               {formatPrice(property.price, property.type, language)}
+              {isRent && <span className="text-xs font-semibold text-slate-500"> / mo</span>}
             </span>
           </div>
 

@@ -297,6 +297,31 @@ class RelationalStore {
         CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
         CREATE INDEX IF NOT EXISTS idx_payments_property_id ON payments(property_id);
         CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+
+        -- Safe column migrations for properties table
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS land_type VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS area_unit VARCHAR(32);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS total_area NUMERIC(15, 2);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS price_per_sqft NUMERIC(15, 2);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS road_access VARCHAR(32);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS dtcp_status VARCHAR(32);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS patta_status VARCHAR(32);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS house_type VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS bhk VARCHAR(32);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS built_up_area_sqft NUMERIC(10, 2);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS plot_area_sqft NUMERIC(10, 2);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_age VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS total_floors INT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS rental_property_type VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS suitable_for JSONB;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS monthly_rent NUMERIC(15, 2);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS available_from VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS preferred_rental_duration VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS rental_rules TEXT;
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS water_supply VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS electricity_supply VARCHAR(100);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS landmark VARCHAR(255);
+        ALTER TABLE properties ADD COLUMN IF NOT EXISTS pincode VARCHAR(32);
       `);
 
       // Sync Users between PostgreSQL and memory
@@ -575,6 +600,43 @@ class RelationalStore {
     const randomCode = Math.floor(100000 + Math.random() * 900000);
     const propertyCode = `SPP-${districtCode}-${randomCode}`;
 
+    const type = propertyData.type || 'house_sale';
+    let areaSqft = Number(propertyData.areaSqft) || 0;
+    let pricePerSqft = propertyData.pricePerSqft ? Number(propertyData.pricePerSqft) : undefined;
+    const price = Number(propertyData.price) || 0;
+
+    // Unit conversion factors for Land in Tamil Nadu
+    const conversionFactors: Record<string, number> = {
+      sqft: 1,
+      cent: 435.6,
+      ground: 2400,
+      acre: 43560,
+      hectare: 107639
+    };
+
+    if (type === 'land_sale') {
+      const unit = (propertyData.areaUnit || 'sqft').toLowerCase();
+      if (propertyData.totalArea && conversionFactors[unit]) {
+        areaSqft = Math.round(Number(propertyData.totalArea) * conversionFactors[unit]);
+      } else if (!areaSqft && propertyData.totalArea) {
+        areaSqft = Math.round(Number(propertyData.totalArea));
+      }
+      if (!pricePerSqft && areaSqft > 0 && price > 0) {
+        pricePerSqft = Math.round(price / areaSqft);
+      }
+    } else if (type === 'house_sale') {
+      const builtUp = Number(propertyData.builtUpAreaSqft) || areaSqft || 1200;
+      areaSqft = builtUp;
+      if (!pricePerSqft && builtUp > 0 && price > 0) {
+        pricePerSqft = Math.round(price / builtUp);
+      }
+    } else if (type === 'house_rent') {
+      const builtUp = Number(propertyData.builtUpAreaSqft) || areaSqft || 1000;
+      areaSqft = builtUp;
+    }
+
+    if (!areaSqft) areaSqft = 1000;
+
     const newProperty: Property = {
       id: `prop-${Date.now()}`,
       propertyCode,
@@ -582,35 +644,67 @@ class RelationalStore {
       titleTa: propertyData.titleTa,
       description: propertyData.description || '',
       descriptionTa: propertyData.descriptionTa,
-      type: propertyData.type || 'house_sale',
+      type,
       status: (dealer.role === 'dealer' ? 'pending_payment' : (this.data.settings.autoApproveProperties ? 'available' : 'pending_approval')) as PropertyStatus,
-      price: Number(propertyData.price) || 0,
+      price,
       priceNegotiable: propertyData.priceNegotiable ?? true,
       rentalPeriod: propertyData.rentalPeriod || 'monthly',
       depositAmount: Number(propertyData.depositAmount) || 0,
       maintenanceFee: Number(propertyData.maintenanceFee) || 0,
       state: 'Tamil Nadu',
       district: propertyData.district || 'Chennai',
-      city: propertyData.city || 'Chennai',
+      city: propertyData.city || propertyData.district || 'Chennai',
       taluk: propertyData.taluk,
-      area: propertyData.area || '',
-      locality: propertyData.locality,
+      area: propertyData.area || propertyData.locality || '',
+      locality: propertyData.locality || propertyData.area || '',
       address: propertyData.address || '',
+      landmark: propertyData.landmark,
       pincode: propertyData.pincode,
-      areaSqft: Number(propertyData.areaSqft) || 1000,
+      areaSqft,
+      pricePerSqft,
+
+      // Land for Sale specifics
+      landType: propertyData.landType,
+      totalArea: propertyData.totalArea ? Number(propertyData.totalArea) : undefined,
+      areaUnit: propertyData.areaUnit,
+      roadAccess: propertyData.roadAccess || 'available',
+      dtcpStatus: propertyData.dtcpStatus || (propertyData.dtcpApproved ? 'approved' : 'unknown'),
+      pattaStatus: propertyData.pattaStatus || (propertyData.pattaAvailable ? 'yes' : 'unknown'),
       plotDimensions: propertyData.plotDimensions,
       zoningType: propertyData.zoningType || 'residential',
-      dtcpApproved: propertyData.dtcpApproved ?? false,
+      dtcpApproved: propertyData.dtcpStatus === 'approved' || propertyData.dtcpApproved === true,
       reraApproved: propertyData.reraApproved ?? false,
-      pattaAvailable: propertyData.pattaAvailable ?? true,
-      bedrooms: propertyData.bedrooms ? Number(propertyData.bedrooms) : undefined,
-      bathrooms: propertyData.bathrooms ? Number(propertyData.bathrooms) : undefined,
+      pattaAvailable: propertyData.pattaStatus === 'yes' || propertyData.pattaAvailable === true,
+
+      // House for Sale specifics
+      houseType: propertyData.houseType,
+      bhk: propertyData.bhk ? String(propertyData.bhk) : (propertyData.bedrooms ? String(propertyData.bedrooms) : undefined),
+      builtUpAreaSqft: propertyData.builtUpAreaSqft ? Number(propertyData.builtUpAreaSqft) : areaSqft,
+      plotAreaSqft: propertyData.plotAreaSqft ? Number(propertyData.plotAreaSqft) : undefined,
+      propertyAge: propertyData.propertyAge || propertyData.ageOfProperty,
+      ageOfProperty: propertyData.propertyAge || propertyData.ageOfProperty,
+      totalFloors: propertyData.totalFloors !== undefined ? Number(propertyData.totalFloors) : (propertyData.floors || 1),
+
+      // House for Rent specifics
+      rentalPropertyType: propertyData.rentalPropertyType,
+      suitableFor: Array.isArray(propertyData.suitableFor) ? propertyData.suitableFor : (propertyData.suitableFor ? [String(propertyData.suitableFor)] : ['Family']),
+      monthlyRent: type === 'house_rent' ? (Number(propertyData.monthlyRent) || price) : undefined,
+      availableFrom: propertyData.availableFrom || 'Immediately',
+      preferredRentalDuration: propertyData.preferredRentalDuration || '11 Months',
+      rentalRules: propertyData.rentalRules,
+
+      // Shared housing & specs
+      bedrooms: propertyData.bedrooms ? Number(propertyData.bedrooms) : (propertyData.bhk ? Number(propertyData.bhk) || 2 : undefined),
+      bathrooms: propertyData.bathrooms ? Number(propertyData.bathrooms) : 1,
       balconies: propertyData.balconies ? Number(propertyData.balconies) : undefined,
-      floors: propertyData.floors ? Number(propertyData.floors) : 1,
+      floors: propertyData.totalFloors !== undefined ? Number(propertyData.totalFloors) : (propertyData.floors || 1),
+      floorNo: propertyData.floorNo !== undefined ? Number(propertyData.floorNo) : undefined,
       facing: propertyData.facing || 'East',
       furnishing: propertyData.furnishing || 'unfurnished',
       parking: propertyData.parking || 'none',
-      waterSource: propertyData.waterSource || ['Borewell'],
+      waterSupply: propertyData.waterSupply || 'Borewell & Corporation',
+      electricitySupply: propertyData.electricitySupply || 'EB 3-Phase',
+      waterSource: propertyData.waterSource || [propertyData.waterSupply || 'Borewell'],
       amenities: propertyData.amenities || [],
       images: propertyData.images && propertyData.images.length > 0 ? propertyData.images : [
         { id: `img-${Date.now()}`, url: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&q=80', isCover: true }
