@@ -18,11 +18,23 @@ export const PropertyGallery: React.FC<Props> = ({ images, propertyTitle }) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
-  const activeImage = images[selectedIndex] || {
-    id: 'placeholder',
-    url: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&q=80',
-    caption: propertyTitle
-  };
+  const hasImages = Boolean(images && images.length > 0 && images[0]?.url);
+
+  if (!hasImages) {
+    return (
+      <div className="relative rounded-2xl md:rounded-3xl overflow-hidden bg-slate-100 aspect-[16/10] md:aspect-[16/9] shadow-subtle border border-slate-200 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
+        <ImageIcon className="w-16 h-16 text-slate-300 mb-3" />
+        <p className="text-base md:text-lg font-bold text-slate-700">
+          No property photo uploaded
+        </p>
+        <p className="text-xs md:text-sm text-slate-500 mt-1 max-w-md">
+          The dealer has not uploaded photos for this property listing yet.
+        </p>
+      </div>
+    );
+  }
+
+  const activeImage = images[selectedIndex] || images[0];
 
   const nextImage = () => {
     setSelectedIndex((prev) => (prev + 1) % images.length);

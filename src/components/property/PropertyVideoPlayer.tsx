@@ -35,7 +35,7 @@ export const PropertyVideoPlayer: React.FC<Props> = ({ property }) => {
           <video
             src={property.videoUrl}
             controls
-            poster={property.images[0]?.url}
+            poster={property.images && property.images[0]?.url ? property.images[0].url : undefined}
             className="w-full h-full object-contain"
           >
             Your browser does not support the video tag.

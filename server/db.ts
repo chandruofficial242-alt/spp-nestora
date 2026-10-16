@@ -719,9 +719,7 @@ class RelationalStore {
       electricitySupply: propertyData.electricitySupply || 'EB 3-Phase',
       waterSource: propertyData.waterSource || [propertyData.waterSupply || 'Borewell'],
       amenities: propertyData.amenities || [],
-      images: propertyData.images && propertyData.images.length > 0 ? propertyData.images : [
-        { id: `img-${Date.now()}`, url: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&q=80', isCover: true }
-      ],
+      images: Array.isArray(propertyData.images) ? propertyData.images : [],
       videoUrl: propertyData.videoUrl,
       dealerId: dealer.id,
       dealerName: dealer.businessName || dealer.name,

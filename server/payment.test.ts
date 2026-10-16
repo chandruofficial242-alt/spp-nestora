@@ -855,6 +855,35 @@ async function runTests() {
   const currentSettings = db.getSettings();
   assert(currentSettings.officialUpiId === 'summada700-4@okaxis', 'Official UPI ID matches the printed QR code (summada700-4@okaxis)');
   assert(currentSettings.listingFeeAmount === 10, 'Listing fee amount is configured to ₹10');
+  // -------------------------------------------------------------
+  // Test Scenario 27: No AI Property Images / No Fake Image Autofill
+  // -------------------------------------------------------------
+  console.log('\n--- 27. No Fake AI Images / No Automatic Image Autofill ---');
+  const noImageProp = db.createProperty({
+    title: 'Property Without Photos',
+    type: 'land_sale',
+    price: 3000000,
+    district: 'Salem',
+    city: 'Salem'
+  }, { id: 'dealer-01', role: 'dealer', name: 'Dealer' } as any);
+
+  assert(Array.isArray(noImageProp.images), 'Property images is an array');
+  assert(noImageProp.images.length === 0, 'Property created without photos has strictly 0 images (no fake/AI auto-fill)');
+  assert(!JSON.stringify(noImageProp.images).includes('unsplash'), 'No fake Unsplash or AI images in property images');
+
+  const withRealImageProp = db.createProperty({
+    title: 'Property With Genuine Photos',
+    type: 'house_sale',
+    price: 5500000,
+    district: 'Coimbatore',
+    city: 'Coimbatore',
+    images: [
+      { id: 'real-01', url: '/uploads/genuine_site_photo_1.jpg', isCover: true, caption: 'Site front gate' }
+    ]
+  }, { id: 'dealer-01', role: 'dealer', name: 'Dealer' } as any);
+
+  assert(withRealImageProp.images.length === 1, 'Accepts uploaded property photo from dealer');
+  assert(withRealImageProp.images[0].url === '/uploads/genuine_site_photo_1.jpg', 'Preserves exact uploaded photo URL');
 
   // -------------------------------------------------------------
   // Summary

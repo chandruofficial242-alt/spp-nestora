@@ -19,8 +19,8 @@ import {
   XCircle,
   Copy,
   Check,
-  UploadCloud,
-  RefreshCw
+  RefreshCw,
+  Image as ImageIcon
 } from 'lucide-react';
 
 export const DealerDashboardPage: React.FC = () => {
@@ -290,15 +290,23 @@ export const DealerDashboardPage: React.FC = () => {
             <div className="bg-white rounded-3xl border border-slate-200 shadow-subtle overflow-hidden">
               <div className="divide-y divide-slate-100">
                 {myListings.map((prop: Property) => {
-                  const cover = prop.images?.[0]?.url || 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=300&q=80';
+                  const hasCover = Boolean(prop.images && prop.images.length > 0 && prop.images[0]?.url);
+                  const cover = hasCover ? prop.images[0].url : '';
                   
                   return (
                     <div key={prop.id} className="p-4 sm:p-6 flex flex-col lg:flex-row lg:items-start justify-between gap-4 hover:bg-slate-50/50 transition">
                       
                       {/* Left: Thumbnail & Details */}
                       <div className="flex items-start space-x-4 flex-1">
-                        <div className="w-20 h-16 sm:w-28 sm:h-20 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
-                          <img src={cover} alt="" className="w-full h-full object-cover" />
+                        <div className="w-20 h-16 sm:w-28 sm:h-20 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200 flex items-center justify-center text-center p-1">
+                          {hasCover ? (
+                            <img src={cover} alt="" className="w-full h-full object-cover rounded-lg" />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-400">
+                              <ImageIcon className="w-5 h-5 text-slate-300 mb-0.5" />
+                              <span className="text-[9px] font-medium leading-tight">No photo</span>
+                            </div>
+                          )}
                         </div>
 
                         <div className="space-y-1.5 flex-1">

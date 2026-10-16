@@ -13,7 +13,8 @@ import {
   Compass, 
   ArrowRight,
   Sparkles,
-  Layers
+  Layers,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface PropertyCardProps {
@@ -40,9 +41,8 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
     ? { text: language === 'ta' ? 'நில விற்பனை' : 'Land Sale', bg: 'bg-amber-600 text-white' }
     : { text: t.property.sale, bg: 'bg-brand-700 text-white' };
 
-  const coverImage = property.images && property.images.length > 0 
-    ? property.images[0].url 
-    : 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80';
+  const hasCoverImage = Boolean(property.images && property.images.length > 0 && property.images[0]?.url);
+  const coverImage = hasCoverImage ? property.images[0].url : '';
 
   const title = (language === 'ta' && property.titleTa) ? property.titleTa : property.title;
 
@@ -50,14 +50,25 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
     return (
       <div className="group bg-white rounded-2xl border border-slate-200/90 shadow-subtle hover:shadow-elevated transition-all duration-300 overflow-hidden flex flex-col md:flex-row relative">
         {/* Image Container */}
-        <div className="relative md:w-80 h-56 md:h-auto flex-shrink-0 overflow-hidden bg-slate-100">
-          <img
-            src={coverImage}
-            alt={title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            loading="lazy"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20 md:hidden" />
+        <div className="relative md:w-80 h-56 md:h-auto flex-shrink-0 overflow-hidden bg-slate-100 flex items-center justify-center">
+          {hasCoverImage ? (
+            <>
+              <img
+                src={coverImage}
+                alt={title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                loading="lazy"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20 md:hidden" />
+            </>
+          ) : (
+            <div className="w-full h-full min-h-[14rem] flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 text-center">
+              <ImageIcon className="w-10 h-10 text-slate-300 mb-1.5" />
+              <span className="text-xs font-semibold text-slate-500">
+                {language === 'ta' ? 'புகைப்படம் பதிவேற்றப்படவில்லை' : 'No property photo uploaded'}
+              </span>
+            </div>
+          )}
 
           {/* Badges Overlay */}
           <div className="absolute top-3 left-3 flex items-center space-x-1.5">
@@ -214,14 +225,25 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
   return (
     <div className="group bg-white rounded-2xl border border-slate-200/90 shadow-subtle hover:shadow-elevated transition-all duration-300 overflow-hidden flex flex-col relative card-hover-effect">
       {/* Image Container */}
-      <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
-        <img
-          src={coverImage}
-          alt={title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          loading="lazy"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
+      <div className="relative aspect-[16/10] overflow-hidden bg-slate-100 flex items-center justify-center">
+        {hasCoverImage ? (
+          <>
+            <img
+              src={coverImage}
+              alt={title}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
+          </>
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 text-center">
+            <ImageIcon className="w-10 h-10 text-slate-300 mb-1.5" />
+            <span className="text-xs font-semibold text-slate-500">
+              {language === 'ta' ? 'புகைப்படம் பதிவேற்றப்படவில்லை' : 'No property photo uploaded'}
+            </span>
+          </div>
+        )}
 
         {/* Badges Overlay */}
         <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">

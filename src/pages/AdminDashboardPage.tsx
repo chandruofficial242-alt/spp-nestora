@@ -38,7 +38,8 @@ import {
   Eye,
   QrCode,
   Copy,
-  Check
+  Check,
+  Image as ImageIcon
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
@@ -799,15 +800,24 @@ export const AdminDashboardPage: React.FC = () => {
                       
                       {/* Media & Key Info */}
                       <div className="flex items-start space-x-4">
-                        <div className="relative w-28 h-24 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
-                          <img
-                            src={prop.images[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=300&q=80'}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                          <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
-                            📷 {prop.images.length}
-                          </span>
+                        <div className="relative w-28 h-24 rounded-2xl overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200 flex items-center justify-center text-center">
+                          {prop.images && prop.images.length > 0 && prop.images[0]?.url ? (
+                            <>
+                              <img
+                                src={prop.images[0].url}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                              <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
+                                📷 {prop.images.length}
+                              </span>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-400 p-1">
+                              <ImageIcon className="w-6 h-6 text-slate-300 mb-0.5" />
+                              <span className="text-[10px] font-medium leading-tight">No photo uploaded</span>
+                            </div>
+                          )}
                         </div>
 
                         <div className="space-y-1">
@@ -995,11 +1005,17 @@ export const AdminDashboardPage: React.FC = () => {
               {properties.map((prop: Property) => (
                 <div key={prop.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
                   <div className="flex items-center space-x-3">
-                    <img
-                      src={prop.images[0]?.url}
-                      alt=""
-                      className="w-16 h-12 rounded-lg object-cover bg-slate-100"
-                    />
+                    <div className="w-16 h-12 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center text-center flex-shrink-0">
+                      {prop.images && prop.images.length > 0 && prop.images[0]?.url ? (
+                        <img
+                          src={prop.images[0].url}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-[9px] text-slate-400 font-medium leading-tight">No photo</span>
+                      )}
+                    </div>
                     <div>
                       <div className="flex items-center space-x-2">
                         <span className="font-mono font-bold text-slate-800">{prop.propertyCode}</span>

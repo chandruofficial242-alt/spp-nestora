@@ -20,7 +20,8 @@ import {
   IndianRupee,
   X,
   Copy,
-  Check
+  Check,
+  Image as ImageIcon
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -122,9 +123,7 @@ export const AddPropertyWizard: React.FC = () => {
 
     // Media
     amenities: ['40ft Wide Road', '24x7 Security', 'Borewell Water', 'Clear Title Documents'],
-    images: [
-      { id: '1', url: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1000&q=80', isCover: true, caption: 'Front Elevation' }
-    ],
+    images: [],
     videoUrl: ''
   });
 
@@ -176,16 +175,7 @@ export const AddPropertyWizard: React.FC = () => {
         ...prev,
         type,
         price: defaultPrice,
-        images: prev.images && prev.images.length > 0 ? prev.images : [
-          {
-            id: '1',
-            url: type === 'land_sale'
-              ? 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1000&q=80'
-              : 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1000&q=80',
-            isCover: true,
-            caption: 'Main View'
-          }
-        ]
+        images: prev.images || []
       };
     });
   };
@@ -209,20 +199,6 @@ export const AddPropertyWizard: React.FC = () => {
         : [...existing, item];
       return { ...prev, suitableFor: updated.length > 0 ? updated : ['Anyone'] };
     });
-  };
-
-  const addImageUrl = (url: string) => {
-    if (!url) return;
-    const newImg: PropertyImage = {
-      id: Date.now().toString(),
-      url,
-      caption: `Property photo ${(formData.images?.length || 0) + 1}`,
-      isCover: (formData.images?.length || 0) === 0
-    };
-    setFormData(prev => ({
-      ...prev,
-      images: [...(prev.images || []), newImg]
-    }));
   };
 
   // Handle Multi-Image File Upload
@@ -489,7 +465,7 @@ export const AddPropertyWizard: React.FC = () => {
       }
 
       // 2. Submit manual payment details with fixed ₹10 server fee
-      const submitRes = await apiService.submitManualPayment({
+      await apiService.submitManualPayment({
         propertyId: targetProperty.id,
         utr: cleanUtr,
         screenshotUrl: paymentScreenshot || undefined,
@@ -1667,66 +1643,59 @@ export const AddPropertyWizard: React.FC = () => {
             </label>
           </div>
 
-          {/* Quick Image URL Input */}
-          <div className="space-y-2 pt-2">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Or Add Photo by Direct Image URL
-            </label>
-            <div className="flex space-x-2">
-              <input
-                type="url"
-                id="photo-url-input"
-                placeholder="https://images.unsplash.com/..."
-                className="flex-1 px-3.5 py-2 text-sm border border-slate-300 rounded-xl outline-hidden"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const input = document.getElementById('photo-url-input') as HTMLInputElement;
-                  if (input && input.value) {
-                    addImageUrl(input.value);
-                    input.value = '';
-                  }
-                }}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-              >
-                + Add Photo
-              </button>
+          {/* Uploaded Photos Section */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Uploaded Property Photos ({formData.images?.length || 0})
+              </label>
+              <span className="text-[11px] text-slate-500">
+                Only genuine photos uploaded by you for this property are accepted
+              </span>
             </div>
 
-            {/* Uploaded Gallery Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3">
-              {formData.images?.map((img) => (
-                <div key={img.id} className="relative aspect-video rounded-xl overflow-hidden border border-slate-200 group bg-slate-100 shadow-2xs">
-                  <img src={img.url} alt="" className="w-full h-full object-cover" />
-                  
-                  {/* Remove Button */}
-                  <button
-                    type="button"
-                    onClick={() => removeImage(img.id)}
-                    className="absolute top-1.5 right-1.5 p-1 bg-rose-600 text-white rounded-lg opacity-0 group-hover:opacity-100 transition shadow cursor-pointer z-10"
-                    title="Remove Photo"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+            {(!formData.images || formData.images.length === 0) ? (
+              <div className="py-8 px-4 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/60 flex flex-col items-center justify-center">
+                <ImageIcon className="w-10 h-10 text-slate-300 mb-2" />
+                <p className="text-sm font-bold text-slate-700">No property photos uploaded yet</p>
+                <p className="text-xs text-slate-500 mt-1 max-w-md">
+                  Please upload genuine site photos using the browse button above. AI-generated, stock, or fake photos are strictly prohibited.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                {formData.images.map((img) => (
+                  <div key={img.id} className="relative aspect-video rounded-xl overflow-hidden border border-slate-200 group bg-slate-100 shadow-2xs">
+                    <img src={img.url} alt="" className="w-full h-full object-cover" />
+                    
+                    {/* Remove Button */}
+                    <button
+                      type="button"
+                      onClick={() => removeImage(img.id)}
+                      className="absolute top-1.5 right-1.5 p-1 bg-rose-600 text-white rounded-lg opacity-0 group-hover:opacity-100 transition shadow cursor-pointer z-10"
+                      title="Remove Photo"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
 
-                  {/* Set Cover Button */}
-                  <button
-                    type="button"
-                    onClick={() => setCoverImage(img.id)}
-                    className="absolute top-1.5 left-1.5 p-1 bg-black/60 hover:bg-black text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition shadow cursor-pointer z-10"
-                  >
-                    {img.isCover ? 'Cover' : 'Set Cover'}
-                  </button>
+                    {/* Set Cover Button */}
+                    <button
+                      type="button"
+                      onClick={() => setCoverImage(img.id)}
+                      className="absolute top-1.5 left-1.5 p-1 bg-black/60 hover:bg-black text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition shadow cursor-pointer z-10"
+                    >
+                      {img.isCover ? 'Cover' : 'Set Cover'}
+                    </button>
 
-                  {img.isCover && (
-                    <span className="absolute bottom-1.5 left-1.5 bg-emerald-800 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-xs">
-                      Cover Photo
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
+                    {img.isCover && (
+                      <span className="absolute bottom-1.5 left-1.5 bg-emerald-800 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-xs">
+                        Cover Photo
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Video Tour Upload & Link */}
@@ -1798,12 +1767,19 @@ export const AddPropertyWizard: React.FC = () => {
 
           {/* Overview Card */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="md:col-span-1 rounded-2xl overflow-hidden aspect-[4/3] bg-slate-100 border border-slate-200">
-              <img
-                src={formData.images?.[0]?.url || 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=600&q=80'}
-                alt=""
-                className="w-full h-full object-cover"
-              />
+            <div className="md:col-span-1 rounded-2xl overflow-hidden aspect-[4/3] bg-slate-100 border border-slate-200 flex items-center justify-center text-center p-2">
+              {formData.images?.[0]?.url ? (
+                <img
+                  src={formData.images[0].url}
+                  alt={formData.title}
+                  className="w-full h-full object-cover rounded-xl"
+                />
+              ) : (
+                <div className="text-slate-400 flex flex-col items-center justify-center p-4">
+                  <ImageIcon className="w-8 h-8 text-slate-300 mb-1" />
+                  <span className="text-xs font-medium">No property photo uploaded</span>
+                </div>
+              )}
             </div>
 
             <div className="md:col-span-2 space-y-3">
@@ -2260,12 +2236,19 @@ export const AddPropertyWizard: React.FC = () => {
             </div>
 
             {/* Main Cover Image */}
-            <div className="aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200">
-              <img
-                src={formData.images?.[0]?.url || 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1000&q=80'}
-                alt=""
-                className="w-full h-full object-cover"
-              />
+            <div className="aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center text-center">
+              {formData.images?.[0]?.url ? (
+                <img
+                  src={formData.images[0].url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="text-slate-400 flex flex-col items-center justify-center p-6">
+                  <ImageIcon className="w-10 h-10 text-slate-300 mb-1.5" />
+                  <span className="text-xs font-medium">No property photo uploaded</span>
+                </div>
+              )}
             </div>
 
             {/* Price / Rent Details */}
