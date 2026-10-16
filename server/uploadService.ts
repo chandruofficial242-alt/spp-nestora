@@ -89,7 +89,9 @@ export async function processUploadedFile(file: Express.Multer.File): Promise<{ 
 
       // Cleanup local temp file
       try {
-        fs.unlinkSync(file.path);
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
       } catch {}
 
       return {
@@ -98,12 +100,23 @@ export async function processUploadedFile(file: Express.Multer.File): Promise<{ 
         size: result.bytes,
         isVideo
       };
-    } catch (cloudErr) {
-      console.error('[Cloudinary Upload Error] Falling back to local disk:', cloudErr);
+    } catch (cloudErr: any) {
+      // Cleanup local temp file on error
+      try {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      } catch {}
+
+      // Log safe error without credentials
+      console.error('[Cloudinary Upload Error]', cloudErr?.message || 'Upload operation failed');
+      
+      // In production / when Cloudinary is configured, do not silently fall back to ephemeral disk
+      throw new Error(`Media storage upload failed: ${cloudErr?.message || 'Please check file format and connection, then try again.'}`);
     }
   }
 
-  // Fallback to locally served persistent URL
+  // Local development fallback only (when Cloudinary is NOT configured)
   const relativeUrl = `/uploads/properties/${file.filename}`;
   return {
     url: relativeUrl,

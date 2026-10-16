@@ -23,7 +23,8 @@ import {
   Building2,
   Trees,
   Home,
-  IndianRupee
+  IndianRupee,
+  AlertTriangle
 } from 'lucide-react';
 
 export const PropertyDetailPage: React.FC = () => {
@@ -74,6 +75,7 @@ export const PropertyDetailPage: React.FC = () => {
   const description = (language === 'ta' && property.descriptionTa) ? property.descriptionTa : property.description;
   const isRent = property.type === 'house_rent';
   const isLand = property.type === 'land_sale';
+  const isClosed = property.status === 'sold' || property.status === 'rented' || property.status === 'archived';
 
   const similarProperties = publicProperties
     .filter((p: Property) => p.id !== property.id && (p.district === property.district || p.type === property.type))
@@ -130,6 +132,25 @@ export const PropertyDetailPage: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Closed / Sold / Rented Status Notice Banner */}
+        {isClosed && (
+          <div className="p-4 sm:p-5 bg-amber-50 border-2 border-amber-300 rounded-2xl flex items-center space-x-3 text-amber-950 shadow-xs animate-fadeIn">
+            <AlertTriangle className="w-7 h-7 text-amber-600 flex-shrink-0" />
+            <div>
+              <h3 className="text-sm sm:text-base font-extrabold">
+                {property.status === 'sold'
+                  ? (language === 'ta' ? 'இந்த சொத்து விற்பனை செய்யப்பட்டுள்ளது' : 'Listing Status: Successfully Sold')
+                  : (language === 'ta' ? 'இந்த சொத்து வாடகைக்கு விடப்பட்டுள்ளது' : 'Listing Status: Successfully Rented')}
+              </h3>
+              <p className="text-xs text-amber-800 mt-0.5">
+                {language === 'ta'
+                  ? 'இந்த சொத்து முடிவடைந்துள்ளது மற்றும் இனி செயலில் உள்ள விசாரணைகளுக்கு கிடைக்காது. கீழே உள்ள பிற சரிபார்க்கப்பட்ட பட்டியல்களைப் பார்க்கவும்.'
+                  : `This deal has been completed and is no longer accepting new customer visits. Explore our other verified properties in ${property.district} below.`}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Title & Key Badge Header */}
         <div className="space-y-3">
@@ -495,40 +516,55 @@ export const PropertyDetailPage: React.FC = () => {
               </div>
 
               {/* Direct Enquiry Actions */}
-              <div className="space-y-2.5">
-                
-                {/* Official Call Button */}
-                <a
-                  href={getCallUrl()}
-                  id="property-detail-call-btn"
-                  className="w-full py-3.5 px-4 bg-brand-800 hover:bg-brand-900 text-white rounded-2xl font-bold text-sm shadow-md transition flex items-center justify-center space-x-2 active:scale-98"
-                >
-                  <Phone className="w-4 h-4 text-emerald-300" />
-                  <span>{t.property.callNow}</span>
-                </a>
+              {isClosed ? (
+                <div className="space-y-3 pt-2">
+                  <div className="p-3.5 bg-slate-100 rounded-2xl text-center text-xs text-slate-700 font-bold border border-slate-200">
+                    {property.status === 'sold' ? 'Deal Closed (Sold Out)' : 'Deal Closed (Leased Out)'}
+                  </div>
+                  <Link
+                    to={`/properties?district=${encodeURIComponent(property.district)}`}
+                    className="w-full py-3.5 px-4 bg-brand-800 hover:bg-brand-900 text-white rounded-2xl font-bold text-xs shadow-md transition flex items-center justify-center space-x-2 text-center"
+                  >
+                    <span>Browse {property.district} Properties</span>
+                    <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  
+                  {/* Official Call Button */}
+                  <a
+                    href={getCallUrl()}
+                    id="property-detail-call-btn"
+                    className="w-full py-3.5 px-4 bg-brand-800 hover:bg-brand-900 text-white rounded-2xl font-bold text-sm shadow-md transition flex items-center justify-center space-x-2 active:scale-98"
+                  >
+                    <Phone className="w-4 h-4 text-emerald-300" />
+                    <span>{t.property.callNow}</span>
+                  </a>
 
-                {/* Official WhatsApp Button */}
-                <a
-                  href={getWhatsAppUrl(property.propertyCode, title, `${property.area}, ${property.district}`)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  id="property-detail-whatsapp-btn"
-                  className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-sm shadow-md transition flex items-center justify-center space-x-2 active:scale-98"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  <span>{t.property.whatsapp}</span>
-                </a>
+                  {/* Official WhatsApp Button */}
+                  <a
+                    href={getWhatsAppUrl(property.propertyCode, title, `${property.area}, ${property.district}`)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    id="property-detail-whatsapp-btn"
+                    className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-sm shadow-md transition flex items-center justify-center space-x-2 active:scale-98"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>{t.property.whatsapp}</span>
+                  </a>
 
-                {/* Schedule Site Visit Modal Trigger */}
-                <button
-                  onClick={() => setSiteVisitModalOpen(true)}
-                  className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold text-xs shadow-sm transition flex items-center justify-center space-x-2 cursor-pointer"
-                >
-                  <Calendar className="w-4 h-4 text-emerald-400" />
-                  <span>{t.property.scheduleVisit}</span>
-                </button>
+                  {/* Schedule Site Visit Modal Trigger */}
+                  <button
+                    onClick={() => setSiteVisitModalOpen(true)}
+                    className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold text-xs shadow-sm transition flex items-center justify-center space-x-2 cursor-pointer"
+                  >
+                    <Calendar className="w-4 h-4 text-emerald-400" />
+                    <span>{t.property.scheduleVisit}</span>
+                  </button>
 
-              </div>
+                </div>
+              )}
 
               {/* Official Desk Details Display */}
               <div className="pt-4 border-t border-slate-100 text-center space-y-1">

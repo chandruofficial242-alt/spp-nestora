@@ -13,6 +13,20 @@ export const MobileStickyContact: React.FC<Props> = ({ property, onOpenSchedule 
 
   const title = property ? ((language === 'ta' && property.titleTa) ? property.titleTa : property.title) : undefined;
   const location = property ? `${property.area}, ${property.district}` : undefined;
+  const isClosed = property?.status === 'sold' || property?.status === 'rented' || property?.status === 'archived';
+
+  if (isClosed) {
+    return (
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 p-3 shadow-2xl animate-slideUp">
+        <a
+          href="/properties"
+          className="w-full flex items-center justify-center space-x-2 py-3 px-4 bg-slate-900 text-white rounded-xl font-bold text-xs shadow-sm transition active:scale-95"
+        >
+          <span>{property?.status === 'sold' ? 'Property Sold' : 'Property Rented'} — Browse Available Properties</span>
+        </a>
+      </div>
+    );
+  }
 
   return (
     <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 p-3 shadow-2xl animate-slideUp">

@@ -9,51 +9,62 @@
   }
   
   body {
-    @apply bg-slate-50 text-slate-900 font-sans;
+    @apply bg-ivory-50 text-slate-900 font-sans selection:bg-brand-900 selection:text-white min-h-screen;
+    background-color: #fdfbf7;
   }
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #f4ede0;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #c5a059;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #0f3a22;
 }
 
-/* Glassmorphism & UI Accents */
+/* Glassmorphism & Luxury Real-Estate Accents */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(224, 194, 126, 0.25);
 }
 
 .glass-dark {
-  background: rgba(15, 23, 42, 0.9);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(3, 46, 34, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(212, 175, 55, 0.2);
+}
+
+.border-champagne {
+  border-color: rgba(197, 160, 89, 0.35);
+}
+
+.champagne-gradient-badge {
+  background: linear-gradient(135deg, #f5ecd6 0%, #ebd9ad 100%);
+  color: #604828;
+  border: 1px solid rgba(197, 160, 89, 0.4);
 }
 
 .card-hover-effect {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .card-hover-effect:hover {
   transform: translateY(-4px);
-  box-shadow: 0 16px 32px -8px rgba(15, 23, 42, 0.08), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 18px 36px -10px rgba(6, 78, 59, 0.12), 0 4px 12px -2px rgba(197, 160, 89, 0.08);
 }
 
 /* Tamil font readability refinement */
@@ -62,10 +73,20 @@
   line-height: 1.6;
 }
 
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Animations */
 @keyframes pulseSubtle {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.92; transform: scale(1.02); }
+  50% { opacity: 0.94; transform: scale(1.015); }
 }
 
 .animate-pulse-subtle {
@@ -74,7 +95,7 @@
 
 @keyframes floatSlow {
   0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-6px); }
+  50% { transform: translateY(-5px); }
 }
 
 .animate-float {

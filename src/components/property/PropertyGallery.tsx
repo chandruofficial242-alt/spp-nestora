@@ -36,12 +36,49 @@ export const PropertyGallery: React.FC<Props> = ({ images, propertyTitle }) => {
 
   const activeImage = images[selectedIndex] || images[0];
 
-  const nextImage = () => {
+  const nextImage = React.useCallback(() => {
     setSelectedIndex((prev) => (prev + 1) % images.length);
+  }, [images.length]);
+
+  const prevImage = React.useCallback(() => {
+    setSelectedIndex((prev) => (prev - 1 + images.length) % images.length);
+  }, [images.length]);
+
+  // Keyboard navigation when Lightbox is open
+  React.useEffect(() => {
+    if (!lightboxOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setLightboxOpen(false);
+      } else if (e.key === 'ArrowRight') {
+        nextImage();
+      } else if (e.key === 'ArrowLeft') {
+        prevImage();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxOpen, nextImage, prevImage]);
+
+  // Touch swipe support for mobile
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStart(e.targetTouches[0].clientX);
   };
 
-  const prevImage = () => {
-    setSelectedIndex((prev) => (prev - 1 + images.length) % images.length);
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStart === null) return;
+    const touchEnd = e.changedTouches[0].clientX;
+    const diff = touchStart - touchEnd;
+    if (diff > 50) {
+      nextImage(); // Swiped left -> next
+    } else if (diff < -50) {
+      prevImage(); // Swiped right -> prev
+    }
+    setTouchStart(null);
   };
 
   return (
@@ -138,11 +175,15 @@ export const PropertyGallery: React.FC<Props> = ({ images, propertyTitle }) => {
           </div>
 
           {/* Lightbox Main Image */}
-          <div className="relative flex-1 flex items-center justify-center my-4 overflow-hidden">
+          <div 
+            className="relative flex-1 flex items-center justify-center my-4 overflow-hidden touch-pan-y"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
             <img
               src={activeImage.url}
               alt={activeImage.caption || propertyTitle}
-              className="max-w-full max-h-full object-contain rounded-xl shadow-2xl animate-scaleUp"
+              className="max-w-full max-h-full object-contain rounded-xl shadow-2xl animate-scaleUp select-none"
             />
 
             {images.length > 1 && (

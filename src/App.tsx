@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { Navbar } from './components/layout/Navbar';
 import { Footer } from './components/layout/Footer';
+import { MobileBottomNav } from './components/layout/MobileBottomNav';
 import { TermsModal } from './components/common/TermsModal';
 import { ToastContainer } from './components/common/ToastContainer';
 
@@ -37,10 +38,10 @@ export const App: React.FC = () => {
     <AppProvider>
       <BrowserRouter>
         <ScrollToTop />
-        <div className="flex flex-col min-h-screen bg-slate-50 text-slate-900 font-sans antialiased selection:bg-brand-700 selection:text-white">
+        <div className="flex flex-col min-h-screen bg-ivory-50 text-slate-900 font-sans antialiased selection:bg-brand-900 selection:text-white">
           <Navbar />
           
-          <main className="flex-1">
+          <main className="flex-1 pb-16 md:pb-0">
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/properties" element={<PropertiesPage />} />
@@ -76,6 +77,9 @@ export const App: React.FC = () => {
           </main>
 
           <Footer />
+
+          {/* Docked Mobile Bottom Navigation Bar */}
+          <MobileBottomNav />
 
           {/* Mandatory First-Open Notice Bilingual Modal */}
           <TermsModal />

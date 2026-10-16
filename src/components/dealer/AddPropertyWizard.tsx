@@ -56,6 +56,27 @@ export const AddPropertyWizard: React.FC = () => {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
 
+  // Draft Autosave & Recovery
+  const DRAFT_STORAGE_KEY = 'spp_nestora_dealer_wizard_draft';
+  const [hasExistingDraft, setHasExistingDraft] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+
+  // Check for existing draft on mount
+  useEffect(() => {
+    try {
+      const savedDraft = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        if (parsed && parsed.formData && (parsed.formData.title || parsed.formData.price || parsed.formData.area)) {
+          setHasExistingDraft(true);
+          setDraftSavedAt(parsed.savedAt ? new Date(parsed.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently');
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse wizard draft', e);
+    }
+  }, []);
+
   // Guard: Ensure dealer is authenticated
   useEffect(() => {
     const token = localStorage.getItem('spp_nestora_token');
@@ -146,6 +167,51 @@ export const AddPropertyWizard: React.FC = () => {
       }
     }
   }, [formData.totalArea, formData.areaUnit, formData.price, formData.builtUpAreaSqft, formData.type]);
+
+  // Autosave to localStorage on step or formData change (excluding step 7 completion)
+  useEffect(() => {
+    if (currentStep < 7 && formData) {
+      const timer = setTimeout(() => {
+        try {
+          localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({
+            currentStep,
+            formData,
+            savedAt: new Date().toISOString()
+          }));
+        } catch (e) {
+          // Quota exceeded or private browsing
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [formData, currentStep]);
+
+  const handleResumeDraft = () => {
+    try {
+      const savedDraft = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        if (parsed.formData) {
+          setFormData(parsed.formData);
+          if (parsed.currentStep && parsed.currentStep <= 6) {
+            setCurrentStep(parsed.currentStep);
+          }
+          showToast('Draft listing restored successfully!', 'success');
+        }
+      }
+    } catch (e) {
+      showToast('Could not restore draft.', 'error');
+    }
+    setHasExistingDraft(false);
+  };
+
+  const handleClearDraft = () => {
+    try {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {}
+    setHasExistingDraft(false);
+    showToast('Draft discarded. Starting fresh listing.', 'info');
+  };
 
   // Manual UPI QR Payment States
   const [utrNumber, setUtrNumber] = useState('');
@@ -477,6 +543,12 @@ export const AddPropertyWizard: React.FC = () => {
         propertyCode: targetProperty.propertyCode,
         amount: settings.listingFeeAmount || 10
       });
+      // Clear saved draft on successful submission
+      try {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+      } catch {}
+      setHasExistingDraft(false);
+
       setCurrentStep(7);
       confetti({ particleCount: 75, spread: 65, origin: { y: 0.6 } });
       showToast('Payment details submitted successfully! Awaiting SPP Nestora Admin verification.', 'success');
@@ -501,13 +573,54 @@ export const AddPropertyWizard: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6">
       
+      {/* Draft Recovery Notification Banner */}
+      {hasExistingDraft && currentStep === 1 && (
+        <div className="mb-6 p-4 bg-amber-50 border-2 border-champagne-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-subtle animate-fadeIn">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center flex-shrink-0">
+              <FileCheck className="w-5 h-5 text-champagne-700" />
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-bold text-slate-900">
+                You have an unsaved listing draft
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Saved at {draftSavedAt}. Would you like to restore your entered details?
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={handleResumeDraft}
+              className="px-4 py-2 bg-brand-800 hover:bg-brand-900 text-white text-xs font-bold rounded-xl shadow-xs transition"
+            >
+              Resume Draft
+            </button>
+            <button
+              type="button"
+              onClick={handleClearDraft}
+              className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl border border-slate-200 transition"
+            >
+              Start Fresh
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Step Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between pb-3 border-b border-slate-200">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-              Create New Property Listing
-            </h1>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                Create New Property Listing
+              </h1>
+              <span className="hidden sm:inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
+                <Check className="w-3 h-3 text-emerald-600" />
+                <span>Autosaved</span>
+              </span>
+            </div>
             <p className="text-xs text-slate-500 mt-0.5">
               Verified Listings Facilitated Exclusively by SPP Nestora Admin Desk
             </p>

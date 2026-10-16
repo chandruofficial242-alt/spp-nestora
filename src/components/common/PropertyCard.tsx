@@ -20,9 +20,16 @@ import {
 interface PropertyCardProps {
   property: Property;
   layout?: 'grid' | 'list';
+  isComparing?: boolean;
+  onToggleCompare?: (property: Property) => void;
 }
 
-export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = 'grid' }) => {
+export const PropertyCard: React.FC<PropertyCardProps> = ({ 
+  property, 
+  layout = 'grid',
+  isComparing = false,
+  onToggleCompare
+}) => {
   const { language, isFavorite, toggleFavorite, t } = useApp();
   const favorited = isFavorite(property.id);
 
@@ -83,22 +90,44 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
             )}
           </div>
 
-          {/* Favorite Button */}
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              toggleFavorite(property.id);
-            }}
-            className={`absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-md ${
-              favorited 
-                ? 'bg-rose-500 text-white' 
-                : 'bg-white/80 hover:bg-white text-slate-700 hover:text-rose-500'
-            }`}
-            title={favorited ? 'Remove Favorite' : 'Save Property'}
-          >
-            <Heart className={`w-4 h-4 ${favorited ? 'fill-current' : ''}`} />
-          </button>
+          {/* Action Buttons: Compare & Favorite */}
+          <div className="absolute top-3 right-3 flex items-center space-x-1.5 z-10">
+            {onToggleCompare && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleCompare(property);
+                }}
+                className={`w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-md text-xs font-bold ${
+                  isComparing
+                    ? 'bg-brand-900 text-champagne-300 ring-2 ring-champagne-400'
+                    : 'bg-white/80 hover:bg-white text-slate-700 hover:text-brand-900'
+                }`}
+                title={isComparing ? 'Remove from Comparison' : 'Compare Property'}
+              >
+                <Layers className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Favorite Button */}
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleFavorite(property.id);
+              }}
+              className={`w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-md ${
+                favorited 
+                  ? 'bg-rose-500 text-white' 
+                  : 'bg-white/80 hover:bg-white text-slate-700 hover:text-rose-500'
+              }`}
+              title={favorited ? 'Remove Favorite' : 'Save Property'}
+            >
+              <Heart className={`w-4 h-4 ${favorited ? 'fill-current' : ''}`} />
+            </button>
+          </div>
 
           {/* Property Code Tag */}
           <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md text-white text-[11px] font-mono px-2 py-0.5 rounded border border-white/20">
@@ -258,22 +287,44 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ property, layout = '
           )}
         </div>
 
-        {/* Favorite Button */}
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleFavorite(property.id);
-          }}
-          className={`absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-md z-10 ${
-            favorited 
-              ? 'bg-rose-500 text-white' 
-              : 'bg-white/80 hover:bg-white text-slate-700 hover:text-rose-500'
-          }`}
-          title={favorited ? 'Remove Favorite' : 'Save Property'}
-        >
-          <Heart className={`w-4 h-4 ${favorited ? 'fill-current' : ''}`} />
-        </button>
+        {/* Action Buttons: Compare & Favorite */}
+        <div className="absolute top-3 right-3 flex items-center space-x-1.5 z-10">
+          {onToggleCompare && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleCompare(property);
+              }}
+              className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-md text-xs font-bold ${
+                isComparing
+                  ? 'bg-brand-900 text-champagne-300 ring-2 ring-champagne-400'
+                  : 'bg-white/80 hover:bg-white text-slate-700 hover:text-brand-900'
+              }`}
+              title={isComparing ? 'Remove from Comparison' : 'Compare Property'}
+            >
+              <Layers className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Favorite Button */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              toggleFavorite(property.id);
+            }}
+            className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-md ${
+              favorited 
+                ? 'bg-rose-500 text-white' 
+                : 'bg-white/80 hover:bg-white text-slate-700 hover:text-rose-500'
+            }`}
+            title={favorited ? 'Remove Favorite' : 'Save Property'}
+          >
+            <Heart className={`w-4 h-4 ${favorited ? 'fill-current' : ''}`} />
+          </button>
+        </div>
 
         {/* Property Code Tag */}
         <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md text-white text-[11px] font-mono px-2 py-0.5 rounded border border-white/20">

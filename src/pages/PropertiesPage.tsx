@@ -5,12 +5,17 @@ import { PropertyFilter, PropertyType, Property } from '../types';
 import { PropertyCard } from '../components/common/PropertyCard';
 import { FilterDrawer } from '../components/property/FilterDrawer';
 import { EmptyState } from '../components/common/EmptyState';
+import { PropertyComparisonModal } from '../components/property/PropertyComparisonModal';
 import { 
   Grid, 
   List, 
   Search, 
   SlidersHorizontal,
-  MapPin
+  MapPin,
+  Layers,
+  ArrowRight,
+  ChevronDown,
+  X
 } from 'lucide-react';
 
 interface Props {
@@ -18,12 +23,20 @@ interface Props {
 }
 
 export const PropertiesPage: React.FC<Props> = ({ presetType }) => {
-  const { t, publicProperties } = useApp();
+  const { t, publicProperties, showToast } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Layout View Mode
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+
+  // Pagination / Incremental Loading
+  const ITEMS_PER_PAGE = 12;
+  const [visibleCount, setVisibleCount] = useState<number>(ITEMS_PER_PAGE);
+
+  // Property Comparison State
+  const [compareList, setCompareList] = useState<Property[]>([]);
+  const [compareModalOpen, setCompareModalOpen] = useState(false);
 
   // Parse Initial Filters from URL
   const [filters, setFilters] = useState<PropertyFilter>(() => {
@@ -131,6 +144,38 @@ export const PropertiesPage: React.FC<Props> = ({ presetType }) => {
 
     return result;
   }, [publicProperties, filters]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setVisibleCount(ITEMS_PER_PAGE);
+  }, [filters]);
+
+  // Comparison Handlers
+  const toggleCompare = (property: Property) => {
+    setCompareList(prev => {
+      const exists = prev.some(p => p.id === property.id);
+      if (exists) {
+        showToast('Removed from comparison', 'info');
+        return prev.filter(p => p.id !== property.id);
+      }
+      if (prev.length >= 3) {
+        showToast('You can compare a maximum of 3 properties side-by-side.', 'warning');
+        return prev;
+      }
+      showToast(`Added ${property.propertyCode} to comparison`, 'success');
+      return [...prev, property];
+    });
+  };
+
+  const removeCompare = (id: string) => {
+    setCompareList(prev => prev.filter(p => p.id !== id));
+  };
+
+  const clearCompare = () => {
+    setCompareList([]);
+  };
+
+  const displayedListings = filteredListings.slice(0, visibleCount);
 
   const pageTitle = presetType === 'land_sale'
     ? t.categories.landSaleTitle
@@ -253,23 +298,80 @@ export const PropertiesPage: React.FC<Props> = ({ presetType }) => {
               onReset={handleResetFilters}
             />
           ) : (
-            <div className={
-              viewMode === 'grid'
-                ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6'
-                : 'space-y-4'
-            }>
-              {filteredListings.map((property: Property) => (
-                <PropertyCard
-                  key={property.id}
-                  property={property}
-                  layout={viewMode}
-                />
-              ))}
+            <div>
+              <div className={
+                viewMode === 'grid'
+                  ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6'
+                  : 'space-y-4'
+              }>
+                {displayedListings.map((property: Property) => (
+                  <PropertyCard
+                    key={property.id}
+                    property={property}
+                    layout={viewMode}
+                    isComparing={compareList.some(p => p.id === property.id)}
+                    onToggleCompare={toggleCompare}
+                  />
+                ))}
+              </div>
+
+              {/* Incremental Load More Pagination */}
+              {visibleCount < filteredListings.length && (
+                <div className="text-center pt-10 pb-4">
+                  <button
+                    onClick={() => setVisibleCount(prev => prev + ITEMS_PER_PAGE)}
+                    className="inline-flex items-center space-x-2 px-8 py-3.5 bg-white hover:bg-slate-50 text-brand-900 border-2 border-brand-800 rounded-2xl text-xs sm:text-sm font-bold shadow-subtle hover:shadow-elevated transition hover:scale-102"
+                  >
+                    <span>Load More Properties ({filteredListings.length - visibleCount} more)</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                  <p className="text-xs text-slate-400 mt-2">
+                    Showing {displayedListings.length} of {filteredListings.length} verified Tamil Nadu properties
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
 
       </div>
+
+      {/* Floating Property Comparison Bar */}
+      {compareList.length > 0 && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-brand-950/95 backdrop-blur-md text-white rounded-2xl px-4 sm:px-6 py-3 shadow-2xl border border-champagne-400/40 flex items-center space-x-3 sm:space-x-4 animate-slideUp">
+          <div className="flex items-center space-x-2">
+            <Layers className="w-5 h-5 text-champagne-300" />
+            <span className="text-xs sm:text-sm font-bold whitespace-nowrap">
+              {compareList.length} of 3 Selected
+            </span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setCompareModalOpen(true)}
+              className="px-4 py-2 bg-champagne-400 hover:bg-champagne-300 text-slate-950 rounded-xl text-xs font-black transition shadow whitespace-nowrap"
+            >
+              Compare Side-by-Side
+            </button>
+            <button
+              onClick={clearCompare}
+              className="p-1.5 text-slate-400 hover:text-white transition"
+              title="Clear comparison"
+              aria-label="Clear comparison"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Property Comparison Modal */}
+      <PropertyComparisonModal
+        properties={compareList}
+        isOpen={compareModalOpen}
+        onClose={() => setCompareModalOpen(false)}
+        onRemove={removeCompare}
+        onClear={clearCompare}
+      />
 
     </div>
   );
