@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "start": "tsx server/index.ts",
     "test": "tsx server/payment.test.ts",
+    "reset-admin": "tsx server/scripts/resetAdmin.ts",
     "lint": "oxlint",
     "preview": "vite preview"
   },

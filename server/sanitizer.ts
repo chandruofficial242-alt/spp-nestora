@@ -25,9 +25,9 @@ export function sanitizePropertiesListForPublic(properties: Property[], settings
 }
 
 /**
- * Sanitizes a user object before returning to client (strips passwordHash, salt)
+ * Sanitizes a user object before returning to client (strips passwordHash, salt, reset tokens)
  */
-export function sanitizeUser(user: User & { passwordHash?: string; salt?: string }): User {
-  const { passwordHash, salt, ...safeUser } = user;
+export function sanitizeUser(user: User & { passwordHash?: string; salt?: string; resetTokenHash?: string; resetTokenExpiry?: string }): User {
+  const { passwordHash, salt, resetTokenHash, resetTokenExpiry, ...safeUser } = user as any;
   return safeUser;
 }

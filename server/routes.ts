@@ -128,11 +128,88 @@ router.post('/auth/logout', authenticate, (req: AuthenticatedRequest, res) => {
   return res.json({ success: true, message: 'Logged out successfully' });
 });
 
-router.post('/auth/forgot-password', authLimiter, (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email is required' });
-  // Verification without leaking account existence
-  return res.json({ success: true, message: 'If the email exists, a password reset link has been dispatched.' });
+router.post('/auth/forgot-password', authLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Email address is required.' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const tokenInfo = db.createPasswordResetToken(normalizedEmail);
+
+    if (tokenInfo) {
+      const host = req.get('host') || 'localhost:5000';
+      const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+      const origin = req.get('origin') || process.env.CLIENT_URL || `${protocol}://${host}`;
+      const resetUrl = `${origin}/reset-password?token=${tokenInfo.rawToken}`;
+
+      try {
+        await emailService.sendPasswordResetEmail(tokenInfo.deliveryEmail, resetUrl, tokenInfo.user.name);
+      } catch (e: any) {
+        console.warn('[Password Reset Email Error]:', e.message || e);
+      }
+    }
+
+    // Verification without leaking account existence
+    return res.json({
+      success: true,
+      message: 'If an account exists with this email address, password reset instructions have been sent.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to process password reset request.' });
+  }
+});
+
+router.get('/auth/verify-reset-token', (req, res) => {
+  try {
+    const token = req.query.token as string;
+    if (!token) {
+      return res.status(400).json({ valid: false, error: 'Missing reset token.' });
+    }
+
+    const check = db.verifyPasswordResetToken(token);
+    if (!check.valid || !check.user) {
+      return res.status(400).json({ valid: false, error: check.error || 'Invalid or expired token.' });
+    }
+
+    const emailParts = check.user.email.split('@');
+    const maskedEmail = emailParts[0].length > 3
+      ? `${emailParts[0].slice(0, 3)}***@${emailParts[1]}`
+      : `${emailParts[0][0]}***@${emailParts[1]}`;
+
+    return res.json({
+      valid: true,
+      email: maskedEmail
+    });
+  } catch (err: any) {
+    return res.status(500).json({ valid: false, error: err.message || 'Token verification failed.' });
+  }
+});
+
+router.post('/auth/reset-password', authLimiter, (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Reset token and new password are required.' });
+    }
+
+    if (typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+    }
+
+    const result = db.resetPasswordWithToken(token, newPassword);
+    if (!result.success || !result.user) {
+      return res.status(400).json({ error: result.error || 'Password reset failed. The link may have expired or already been used.' });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Your password has been successfully reset. You can now log in.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Password reset failed.' });
+  }
 });
 
 router.get('/auth/me', authenticate, (req: AuthenticatedRequest, res) => {

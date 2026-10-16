@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
     address TEXT,
     dealer_type VARCHAR(64) CHECK (dealer_type IN ('individual', 'agency', 'builder', 'promoter')),
     dealer_status VARCHAR(32) CHECK (dealer_status IN ('pending', 'verified', 'rejected', 'suspended')),
+    reset_token_hash VARCHAR(255),
+    reset_token_expiry TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -31,6 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 CREATE INDEX IF NOT EXISTS idx_users_dealer_status ON users(dealer_status);
+CREATE INDEX IF NOT EXISTS idx_users_reset_token ON users(reset_token_hash);
 
 -- 2. PROPERTIES TABLE
 CREATE TABLE IF NOT EXISTS properties (

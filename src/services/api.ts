@@ -72,6 +72,41 @@ export const apiService = {
     return res.json();
   },
 
+  async requestPasswordReset(email: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to request password reset link.');
+    }
+    return res.json();
+  },
+
+  async verifyResetToken(token: string): Promise<{ valid: boolean; email?: string; error?: string }> {
+    const res = await fetch(`${API_BASE}/auth/verify-reset-token?token=${encodeURIComponent(token)}`);
+    const data = await res.json().catch(() => ({ valid: false, error: 'Network error verifying reset link.' }));
+    if (!res.ok || !data.valid) {
+      return { valid: false, error: data.error || 'Invalid or expired password reset link.' };
+    }
+    return data;
+  },
+
+  async resetPassword(token: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, newPassword })
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to reset password.');
+    }
+    return res.json();
+  },
+
   async acceptTerms(email?: string, language?: string): Promise<void> {
     try {
       await fetch(`${API_BASE}/terms/accept`, {

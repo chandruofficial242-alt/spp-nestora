@@ -9,6 +9,7 @@ import {
   handleWebhookPaymentReconciliation 
 } from './paymentService.ts';
 import { requireRole } from './auth.ts';
+import { sanitizeUser } from './sanitizer.ts';
 
 async function runTests() {
   console.log('=== STARTING COMPLETE PRODUCTION PAYMENT TEST SUITE ===\n');
@@ -884,6 +885,86 @@ async function runTests() {
 
   assert(withRealImageProp.images.length === 1, 'Accepts uploaded property photo from dealer');
   assert(withRealImageProp.images[0].url === '/uploads/genuine_site_photo_1.jpg', 'Preserves exact uploaded photo URL');
+
+  // -------------------------------------------------------------
+  // Test Scenario 28: Secure Admin Password Recovery Workflow
+  // -------------------------------------------------------------
+  console.log('\n--- 28. Secure Admin Password Recovery & Token Security ---');
+  
+  // 1. Check recovery token creation for admin email
+  const adminTokenResult = db.createPasswordResetToken('admin@sppnestora.com');
+  assert(adminTokenResult !== null, 'Password reset token generation succeeds for admin account');
+  assert(adminTokenResult?.rawToken.length === 64, 'Raw token is 64 hex characters (32 cryptographically random bytes)');
+  
+  // Verify token hash is stored, never plaintext raw token
+  const adminUserRecord = db.findUserByEmail('admin@sppnestora.com');
+  assert(adminUserRecord !== undefined, 'Admin user found in store');
+  assert((adminUserRecord as any).resetTokenHash !== undefined, 'Reset token SHA-256 hash is stored in database');
+  assert((adminUserRecord as any).resetTokenHash !== adminTokenResult?.rawToken, 'Raw token is NEVER stored in database directly');
+  
+  const expectedHash = crypto.createHash('sha256').update(adminTokenResult!.rawToken).digest('hex');
+  assert((adminUserRecord as any).resetTokenHash === expectedHash, 'Database stores exact SHA-256 hash of the token');
+  assert((adminUserRecord as any).resetTokenExpiry !== undefined, 'Token expiry timestamp is recorded');
+
+  // 2. Token sanitization verification (API response must never leak reset tokens)
+  const sanitizedAdmin = sanitizeUser(adminUserRecord as any);
+  assert((sanitizedAdmin as any).passwordHash === undefined, 'Sanitizer strips passwordHash');
+  assert((sanitizedAdmin as any).salt === undefined, 'Sanitizer strips salt');
+  assert((sanitizedAdmin as any).resetTokenHash === undefined, 'Sanitizer strips resetTokenHash');
+  assert((sanitizedAdmin as any).resetTokenExpiry === undefined, 'Sanitizer strips resetTokenExpiry');
+
+  // 3. Token verification validity
+  const validCheck = db.verifyPasswordResetToken(adminTokenResult!.rawToken);
+  assert(validCheck.valid === true, 'Token verification succeeds with valid token');
+  assert(validCheck.user?.id === adminUserRecord?.id, 'Verified user matches the admin user ID');
+
+  // 4. Invalid token rejection
+  const invalidCheck = db.verifyPasswordResetToken('completely_fake_invalid_token_12345');
+  assert(invalidCheck.valid === false, 'Invalid token is rejected');
+
+  // 5. Expired token rejection
+  const expiredTokenResult = db.createPasswordResetToken('admin@sppnestora.com');
+  assert(expiredTokenResult !== null, 'Second token generated for expiration test');
+  // Artificially expire token by 2 hours
+  (adminUserRecord as any).resetTokenExpiry = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const expiredCheck = db.verifyPasswordResetToken(expiredTokenResult!.rawToken);
+  assert(expiredCheck.valid === false, 'Expired token is rejected');
+  assert(expiredCheck.error?.includes('expired') === true, 'Rejection explains link has expired');
+
+  // 6. Reset password with new valid token
+  const freshToken = db.createPasswordResetToken('admin@sppnestora.com');
+  assert(freshToken !== null, 'Fresh token created');
+
+  const shortPassResult = db.resetPasswordWithToken(freshToken!.rawToken, 'short');
+  assert(shortPassResult.success === false, 'Password shorter than 6 characters is rejected');
+
+  const newAdminPassword = 'MyNewSecureAdmin2026!';
+  const resetResult = db.resetPasswordWithToken(freshToken!.rawToken, newAdminPassword);
+  assert(resetResult.success === true, 'Password reset succeeds with valid token and strong password');
+
+  // 7. Single-use enforcement (reusing token must fail immediately)
+  const reuseResult = db.resetPasswordWithToken(freshToken!.rawToken, 'AnotherPassword2026!');
+  assert(reuseResult.success === false, 'Reusing token fails immediately (single-use enforced)');
+  assert((adminUserRecord as any).resetTokenHash === undefined, 'Reset token hash cleared upon successful reset');
+
+  // 8. Login verification with updated credentials
+  const oldLoginCheck = db.verifyPassword('admin@sppnestora.com', 'admin123');
+  assert(oldLoginCheck === null, 'Old password fails authentication after password reset');
+
+  const newLoginCheck = db.verifyPassword('admin@sppnestora.com', newAdminPassword);
+  assert(newLoginCheck !== null, 'New password successfully authenticates admin user');
+  assert(newLoginCheck?.role === 'admin', 'Authenticated account retains full admin role');
+
+  // 9. Emergency Admin Reset CLI functionality test
+  const emergencyPass = 'EmergencyAdminPass2026!';
+  const emergencyRes = db.emergencyResetAdminPassword(emergencyPass);
+  assert(emergencyRes.success === true, 'Emergency admin password reset executes successfully');
+  const emergencyLogin = db.verifyPassword(emergencyRes.adminEmail, emergencyPass);
+  assert(emergencyLogin !== null, 'Emergency reset password verifies successfully');
+
+  // 10. Security: Nonexistent email lookup prevention
+  const nonexistentToken = db.createPasswordResetToken('nonexistent_user@example.com');
+  assert(nonexistentToken === null, 'Password reset returns null for nonexistent email');
 
   // -------------------------------------------------------------
   // Summary

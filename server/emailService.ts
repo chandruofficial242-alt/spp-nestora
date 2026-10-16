@@ -301,7 +301,7 @@ class EmailService {
     return lines.join('\r\n');
   }
 
-  public async sendViaGmailApi(payload: EmailPayload): Promise<{
+  public async sendViaGmailApi(payload: EmailPayload, targetRecipient?: string): Promise<{
     success: boolean;
     delivered: boolean;
     messageId?: string;
@@ -321,7 +321,7 @@ class EmailService {
 
     try {
       const from = `"${config.appName}" <${config.gmailSenderEmail}>`;
-      const to = config.adminEmail;
+      const to = targetRecipient || config.adminEmail;
       const rawMessage = this.createRfc2822Message(from, to, payload.subject, payload.text, payload.html);
       const base64urlRaw = Buffer.from(rawMessage).toString('base64url');
 
@@ -688,7 +688,7 @@ SUCCESS - Live Delivery Verified
     return { ...res, recipient };
   }
 
-  public async sendNotification(payload: EmailPayload): Promise<{
+  public async sendCustomEmail(recipient: string, payload: EmailPayload): Promise<{
     success: boolean;
     delivered: boolean;
     messageId?: string;
@@ -696,23 +696,16 @@ SUCCESS - Live Delivery Verified
     errorCode?: string;
   }> {
     const config = this.getConfig();
-    const recipient = config.adminEmail;
+    const targetRecipient = recipient || config.adminEmail;
 
-    console.log('[Email Service] Attempting admin notification...');
-    console.log(`[Email Service] Sending to: ${recipient}`);
-    console.log(`[Admin Email Notification Dispatch]
-To: ${recipient}
-Subject: ${payload.subject}
-Timestamp: ${new Date().toISOString()}
-`);
+    console.log(`[Email Service] Dispatching email to: ${targetRecipient} (Subject: ${payload.subject})`);
 
     // 1. Gmail API OAuth 2.0 Dispatch (Top Priority)
     if (config.isGmailApi) {
-      console.log(`[Email Service] Dispatching via Gmail API (from: ${config.gmailSenderEmail} to: ${recipient})...`);
-      const result = await this.sendViaGmailApi(payload);
+      console.log(`[Email Service] Dispatching via Gmail API (from: ${config.gmailSenderEmail} to: ${targetRecipient})...`);
+      const result = await this.sendViaGmailApi(payload, targetRecipient);
       if (result.success) {
-        console.log(`[Email Diagnostic] Gmail API accepted message. Message ID: ${result.messageId}`);
-        console.log('[Email Diagnostic] LIVE EMAIL TEST SUCCESS');
+        console.log(`[Email Diagnostic] Gmail API accepted message for ${targetRecipient}. Message ID: ${result.messageId}`);
         return result;
       }
       console.warn('[Email Diagnostic] Gmail API delivery failed:', result.error);
@@ -722,7 +715,7 @@ Timestamp: ${new Date().toISOString()}
     // 2. Resend Dispatch
     if (config.isResend) {
       try {
-        console.log(`[Email Service] Dispatching via Resend API (from: ${config.resendFrom})...`);
+        console.log(`[Email Service] Dispatching via Resend API (from: ${config.resendFrom} to: ${targetRecipient})...`);
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -731,7 +724,7 @@ Timestamp: ${new Date().toISOString()}
           },
           body: JSON.stringify({
             from: config.resendFrom,
-            to: [recipient],
+            to: [targetRecipient],
             subject: payload.subject,
             text: payload.text,
             html: payload.html
@@ -743,10 +736,6 @@ Timestamp: ${new Date().toISOString()}
         if (!response.ok) {
           const safeError = data.message || `Resend dispatch failed with status ${response.status}`;
           console.warn('[Email Service] Resend API error:', safeError);
-          console.warn('[Email Diagnostic] LIVE EMAIL TEST FAILED');
-          console.warn(`[Email Diagnostic] Error code: ${data.name || 'RESEND_API_ERROR'}`);
-          console.warn(`[Email Diagnostic] Error message: ${safeError}`);
-
           return {
             success: false,
             delivered: false,
@@ -755,11 +744,7 @@ Timestamp: ${new Date().toISOString()}
           };
         }
 
-        console.log(`[Email Service] Resend email sent successfully. Message ID: ${data.id}`);
-        console.log('[Email Diagnostic] Resend accepted message');
-        console.log(`[Email Diagnostic] Message ID: ${data.id}`);
-        console.log('[Email Diagnostic] LIVE EMAIL TEST SUCCESS');
-
+        console.log(`[Email Service] Resend email sent to ${targetRecipient}. Message ID: ${data.id}`);
         return {
           success: true,
           delivered: true,
@@ -781,12 +766,9 @@ Timestamp: ${new Date().toISOString()}
     await this.initTransport();
 
     if (!this.isConfigured || !this.transporter) {
-      console.log('[Email Service] Email service credentials not configured in environment. Notification logged safely.');
-      console.log(`[Safe Notification Log]:\n${payload.text}\n`);
+      console.log(`[Email Service] Email credentials not configured. Dispatch logged safely for ${targetRecipient}.`);
       return { success: true, delivered: false };
     }
-
-    console.log('[Email Service] SMTP transporter ready');
 
     try {
       const fromAddress = process.env.SMTP_FROM || process.env.EMAIL_FROM || `"${config.appName}" <${config.user}>`;
@@ -795,7 +777,7 @@ Timestamp: ${new Date().toISOString()}
       try {
         info = await this.transporter.sendMail({
           from: fromAddress,
-          to: recipient,
+          to: targetRecipient,
           subject: payload.subject,
           text: payload.text,
           html: payload.html
@@ -803,7 +785,6 @@ Timestamp: ${new Date().toISOString()}
       } catch (sendErr: any) {
         const fallbackPort = config.port === 587 ? 465 : 587;
         const fallbackSecure = fallbackPort === 465;
-        console.log(`[Email Service] Primary SMTP send encountered: ${sendErr.message}. Retrying via fallback port ${fallbackPort}...`);
         const fallbackTransporter = await this.createTransporterInstance(
           config.host || 'smtp.gmail.com',
           fallbackPort,
@@ -813,20 +794,13 @@ Timestamp: ${new Date().toISOString()}
         );
         info = await fallbackTransporter.sendMail({
           from: fromAddress,
-          to: recipient,
+          to: targetRecipient,
           subject: payload.subject,
           text: payload.text,
           html: payload.html
         });
         this.transporter = fallbackTransporter;
       }
-
-      console.log('[Email Service] SMTP IPv4 connection verified');
-      console.log('[Email Service] Email sent successfully');
-      console.log(`[Email Service] Admin notification sent successfully to ${recipient}`);
-      console.log('[Email Diagnostic] SMTP accepted message');
-      console.log(`[Email Diagnostic] Message ID: ${info.messageId || 'generated'}`);
-      console.log('[Email Diagnostic] LIVE EMAIL TEST SUCCESS');
 
       return {
         success: true,
@@ -835,12 +809,7 @@ Timestamp: ${new Date().toISOString()}
       };
     } catch (err: any) {
       const safeError = err.message || 'Unknown SMTP error';
-      console.warn('[Email Service] SMTP authentication failed or delivery error');
       console.warn(`[Email Service] Email send failed: ${safeError}`);
-      console.warn('[Email Diagnostic] LIVE EMAIL TEST FAILED');
-      console.warn(`[Email Diagnostic] Error code: ${err.code || 'SMTP_ERROR'}`);
-      console.warn(`[Email Diagnostic] Error message: ${safeError}`);
-
       return {
         success: false,
         delivered: false,
@@ -848,6 +817,84 @@ Timestamp: ${new Date().toISOString()}
         errorCode: err.code || 'SMTP_ERROR'
       };
     }
+  }
+
+  public async sendNotification(payload: EmailPayload): Promise<{
+    success: boolean;
+    delivered: boolean;
+    messageId?: string;
+    error?: string;
+    errorCode?: string;
+  }> {
+    const config = this.getConfig();
+    return await this.sendCustomEmail(config.adminEmail, payload);
+  }
+
+  public async sendPasswordResetEmail(email: string, resetUrl: string, name: string): Promise<{
+    success: boolean;
+    delivered: boolean;
+    messageId?: string;
+    error?: string;
+  }> {
+    const config = this.getConfig();
+    const subject = `Reset Your Password – SPP Nestora`;
+    const text = `SPP Nestora — Password Reset Request
+
+Hello ${name || 'User'},
+
+We received a request to reset your password for your SPP Nestora account.
+
+To reset your password, please click the secure link below or copy and paste it into your browser:
+${resetUrl}
+
+SECURITY NOTICE:
+- This link is single-use and will expire in 1 hour.
+- SPP Nestora will never ask you for your password via email or phone.
+- If you did not request this password reset, please ignore this email. Your current password remains secure.
+
+Regards,
+SPP Nestora Security Team
+`;
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #ffffff;">
+        <div style="background: #0f3a22; color: #ffffff; padding: 24px; text-align: center;">
+          <h1 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">SPP NESTORA</h1>
+          <p style="margin: 6px 0 0 0; font-size: 13px; color: #a7f3d0;">Password Recovery Assistance</p>
+        </div>
+        <div style="padding: 32px 24px; color: #1e293b; font-size: 15px; line-height: 1.6;">
+          <p style="margin-top: 0;">Hello <strong>${name || 'User'}</strong>,</p>
+          <p>We received a request to reset the password for your SPP Nestora account associated with <strong>${email}</strong>.</p>
+          <p>Click the secure button below to set a new password:</p>
+          
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${resetUrl}" style="background: #0f3a22; color: #ffffff; font-weight: bold; text-decoration: none; padding: 14px 28px; border-radius: 10px; display: inline-block; font-size: 15px;">
+              Reset Password
+            </a>
+          </div>
+
+          <p style="font-size: 13px; color: #64748b;">
+            If the button above does not work, copy and paste this link into your browser:
+            <br />
+            <a href="${resetUrl}" style="color: #0f3a22; word-break: break-all; font-family: monospace; font-size: 12px;">${resetUrl}</a>
+          </p>
+
+          <div style="margin-top: 24px; padding: 16px; background: #f8fafc; border-left: 4px solid #10b981; border-radius: 6px; font-size: 13px; color: #475569;">
+            <strong>Security Notice:</strong>
+            <ul style="margin: 6px 0 0 0; padding-left: 20px;">
+              <li>This link will automatically expire in <strong>1 hour</strong>.</li>
+              <li>This link can only be used once.</li>
+              <li>If you did not request this reset, you can safely ignore this email. No changes will be made to your account.</li>
+            </ul>
+          </div>
+        </div>
+        <div style="background: #f1f5f9; padding: 16px; text-align: center; font-size: 12px; color: #64748b;">
+          SPP Nestora Central Real-Estate Platform • Official Desk: +91 ${config.officialPhone}
+        </div>
+      </div>
+    `;
+
+    return await this.sendCustomEmail(email, { subject, text, html });
   }
 
   // 1. New Customer / Contact Enquiry Notification

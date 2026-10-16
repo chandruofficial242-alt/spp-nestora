@@ -15,6 +15,7 @@ import { ContactPage } from './pages/ContactPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { CustomerDashboardPage } from './pages/CustomerDashboardPage';
 import { DealerDashboardPage } from './pages/DealerDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
@@ -67,6 +68,7 @@ export const App: React.FC = () => {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               
               {/* Fallback */}
               <Route path="*" element={<NotFoundPage />} />

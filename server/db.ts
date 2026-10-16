@@ -48,8 +48,15 @@ export interface StatusHistoryRecord {
   timestamp: string;
 }
 
+export type DbUser = User & { 
+  passwordHash?: string; 
+  salt?: string; 
+  resetTokenHash?: string; 
+  resetTokenExpiry?: string; 
+};
+
 export interface DatabaseSchema {
-  users: (User & { passwordHash?: string; salt?: string })[];
+  users: DbUser[];
   properties: Property[];
   enquiries: Enquiry[];
   site_visits: SiteVisit[];
@@ -182,6 +189,8 @@ class RelationalStore {
           role VARCHAR(32) NOT NULL,
           password_hash VARCHAR(255),
           salt VARCHAR(64),
+          reset_token_hash VARCHAR(255),
+          reset_token_expiry TIMESTAMP WITH TIME ZONE,
           avatar TEXT,
           business_name VARCHAR(255),
           district VARCHAR(100),
@@ -335,6 +344,11 @@ class RelationalStore {
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS payment_submitted_at TIMESTAMP WITH TIME ZONE;
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS payment_verified_at TIMESTAMP WITH TIME ZONE;
         ALTER TABLE properties ADD COLUMN IF NOT EXISTS payment_rejection_reason TEXT;
+
+        -- Safe column migrations for users table (admin recovery & password reset)
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash VARCHAR(255);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP WITH TIME ZONE;
+        CREATE INDEX IF NOT EXISTS idx_users_reset_token ON users(reset_token_hash);
       `);
 
       // Sync Users between PostgreSQL and memory
@@ -352,7 +366,7 @@ class RelationalStore {
       } else {
         // Merge Postgres users into memory
         for (const r of usersRes.rows) {
-          const pgUser: User & { passwordHash?: string; salt?: string } = {
+          const pgUser: DbUser = {
             id: r.id,
             name: r.name,
             email: r.email.toLowerCase().trim(),
@@ -360,6 +374,8 @@ class RelationalStore {
             role: r.role,
             passwordHash: r.password_hash,
             salt: r.salt,
+            resetTokenHash: r.reset_token_hash || undefined,
+            resetTokenExpiry: r.reset_token_expiry ? new Date(r.reset_token_expiry).toISOString() : undefined,
             avatar: r.avatar,
             businessName: r.business_name,
             district: r.district,
@@ -492,7 +508,20 @@ class RelationalStore {
   public findUserByEmail(email: string) {
     if (!email) return undefined;
     const normalized = email.toLowerCase().trim();
-    return this.data.users.find(u => u.email.toLowerCase().trim() === normalized);
+    const directMatch = this.data.users.find(u => u.email.toLowerCase().trim() === normalized);
+    if (directMatch) return directMatch;
+
+    // Check alias for configured admin email or admin@sppnestora.com
+    const configuredAdminEmail = (process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || '').toLowerCase().trim();
+    if (configuredAdminEmail && normalized === configuredAdminEmail) {
+      const adminUser = this.data.users.find(u => u.role === 'admin');
+      if (adminUser) return adminUser;
+    }
+    if (normalized === 'admin@sppnestora.com') {
+      const adminUser = this.data.users.find(u => u.role === 'admin');
+      if (adminUser) return adminUser;
+    }
+    return undefined;
   }
 
   public findUserById(id: string) {
@@ -554,6 +583,8 @@ class RelationalStore {
         console.log(`[Auth Diagnostic] User ${normalizedEmail} authenticated successfully via PBKDF2 hash.`);
         return user;
       }
+      console.log(`[Auth Diagnostic] Password verification failed for user ${normalizedEmail}`);
+      return null;
     }
 
     // Seed account default credentials fallback
@@ -580,6 +611,159 @@ class RelationalStore {
 
     console.log(`[Auth Diagnostic] Password verification failed for user ${normalizedEmail}`);
     return null;
+  }
+
+  /**
+   * Generates a single-use cryptographically secure random reset token.
+   * Only the SHA-256 hash is saved to the store/PostgreSQL.
+   * Expiration is strictly enforced at 1 hour.
+   */
+  public createPasswordResetToken(email: string): { user: User; rawToken: string; deliveryEmail: string } | null {
+    if (!email) return null;
+    const normalized = email.toLowerCase().trim();
+    const user = this.findUserByEmail(normalized);
+    if (!user) return null;
+
+    const configuredAdminEmail = (process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || '').toLowerCase().trim();
+    let deliveryEmail = user.email;
+    if (user.role === 'admin' && configuredAdminEmail) {
+      deliveryEmail = configuredAdminEmail;
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiry = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour expiry
+
+    user.resetTokenHash = tokenHash;
+    user.resetTokenExpiry = expiry;
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `UPDATE users SET reset_token_hash = $1, reset_token_expiry = $2 WHERE id = $3`,
+        [tokenHash, expiry, user.id]
+      ).catch(e => console.warn('[DB Postgres Sync Error] reset token update:', e.message));
+    }
+
+    return { user, rawToken, deliveryEmail };
+  }
+
+  /**
+   * Verifies that a reset token exists and has not expired.
+   */
+  public verifyPasswordResetToken(rawToken: string): { valid: boolean; user?: User; error?: string } {
+    if (!rawToken || typeof rawToken !== 'string') {
+      return { valid: false, error: 'Missing or invalid reset token.' };
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(rawToken.trim()).digest('hex');
+    const user = this.data.users.find(u => u.resetTokenHash === tokenHash);
+
+    if (!user) {
+      return { valid: false, error: 'Invalid or already used password reset link.' };
+    }
+
+    if (!user.resetTokenExpiry || new Date(user.resetTokenExpiry).getTime() < Date.now()) {
+      return { valid: false, error: 'Password reset link has expired. Please request a new one.' };
+    }
+
+    return { valid: true, user };
+  }
+
+  /**
+   * Resets password using a validated token. Single-use: clears token immediately.
+   * Never logs password or hash.
+   */
+  public resetPasswordWithToken(rawToken: string, newPassword: string): { success: boolean; user?: User; error?: string } {
+    if (!rawToken || !newPassword) {
+      return { success: false, error: 'Reset token and new password are required.' };
+    }
+
+    if (newPassword.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters long.' };
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(rawToken.trim()).digest('hex');
+    const user = this.data.users.find(u => u.resetTokenHash === tokenHash);
+
+    if (!user) {
+      return { success: false, error: 'Invalid or already used password reset link.' };
+    }
+
+    if (!user.resetTokenExpiry || new Date(user.resetTokenExpiry).getTime() < Date.now()) {
+      return { success: false, error: 'Password reset link has expired. Please request a new one.' };
+    }
+
+    const newSalt = crypto.randomBytes(16).toString('hex');
+    const newHash = this.hashPassword(newPassword, newSalt);
+
+    user.salt = newSalt;
+    user.passwordHash = newHash;
+    user.resetTokenHash = undefined;
+    user.resetTokenExpiry = undefined;
+
+    // For admin, if configuredAdminEmail is set and user email was default seed, sync to configuredAdminEmail
+    const configuredAdminEmail = (process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || '').toLowerCase().trim();
+    if (user.role === 'admin' && configuredAdminEmail && user.email.toLowerCase() !== configuredAdminEmail) {
+      const exists = this.data.users.find(u => u.id !== user.id && u.email.toLowerCase() === configuredAdminEmail);
+      if (!exists) {
+        user.email = configuredAdminEmail;
+      }
+    }
+
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `UPDATE users SET password_hash = $1, salt = $2, email = $3, reset_token_hash = NULL, reset_token_expiry = NULL WHERE id = $4`,
+        [newHash, newSalt, user.email, user.id]
+      ).catch(e => console.warn('[DB Postgres Sync Error] password reset update:', e.message));
+    }
+
+    return { success: true, user };
+  }
+
+  /**
+   * Emergency CLI Admin password reset. Does not require token.
+   * Can be invoked via `npm run reset-admin [newPassword]`.
+   */
+  public emergencyResetAdminPassword(newPassword: string): { success: boolean; adminEmail: string; error?: string } {
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, adminEmail: '', error: 'Password must be at least 6 characters long.' };
+    }
+
+    const configuredAdminEmail = (process.env.ADMIN_NOTIFICATION_EMAIL || process.env.OFFICIAL_EMAIL || '').toLowerCase().trim();
+    let admin = this.data.users.find(u => u.role === 'admin');
+
+    if (!admin) {
+      return { success: false, adminEmail: '', error: 'No admin user found in database.' };
+    }
+
+    const newSalt = crypto.randomBytes(16).toString('hex');
+    const newHash = this.hashPassword(newPassword, newSalt);
+
+    admin.salt = newSalt;
+    admin.passwordHash = newHash;
+    admin.resetTokenHash = undefined;
+    admin.resetTokenExpiry = undefined;
+
+    if (configuredAdminEmail && admin.email.toLowerCase() !== configuredAdminEmail) {
+      const exists = this.data.users.find(u => u.id !== admin.id && u.email.toLowerCase() === configuredAdminEmail);
+      if (!exists) {
+        admin.email = configuredAdminEmail;
+      }
+    }
+
+    this.saveToFile(this.data);
+
+    if (this.pool && this.isPostgresConnected) {
+      this.pool.query(
+        `UPDATE users SET password_hash = $1, salt = $2, email = $3, reset_token_hash = NULL, reset_token_expiry = NULL WHERE id = $4`,
+        [newHash, newSalt, admin.email, admin.id]
+      ).catch(e => console.warn('[DB Postgres Sync Error] emergency admin reset:', e.message));
+    }
+
+    return { success: true, adminEmail: admin.email };
   }
 
   public updateDealerStatus(dealerId: string, status: DealerStatus, reason?: string) {
