@@ -187,46 +187,94 @@ export const apiService = {
   async uploadImage(file: File): Promise<{ url: string; isVideo: boolean }> {
     const formData = new FormData();
     formData.append('image', file);
-    const res = await fetch(`${API_BASE}/upload/image`, {
-      method: 'POST',
-      headers: getAuthHeader(),
-      body: formData
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to upload image');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout
+
+    try {
+      const res = await fetch(`${API_BASE}/upload/image`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Upload failed with HTTP status ${res.status}`);
+      }
+      return res.json();
+    } catch (e: any) {
+      clearTimeout(timeoutId);
+      if (e.name === 'AbortError') {
+        throw new Error('Image upload timed out. Please check your network connection and try again.');
+      }
+      throw e;
     }
-    return res.json();
   },
 
-  async uploadMultipleImages(files: File[]): Promise<{ files: Array<{ url: string }> }> {
+  async uploadMultipleImages(files: File[]): Promise<{ 
+    files: Array<{ url: string; originalName?: string; format?: string; size?: number }>; 
+    errors?: Array<{ originalName: string; error: string }> 
+  }> {
     const formData = new FormData();
     files.forEach(f => formData.append('images', f));
-    const res = await fetch(`${API_BASE}/upload/multiple`, {
-      method: 'POST',
-      headers: getAuthHeader(),
-      body: formData
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to upload multiple images');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000); // 180s timeout for batch
+
+    try {
+      const res = await fetch(`${API_BASE}/upload/multiple`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Upload failed with HTTP status ${res.status}`);
+      }
+      return res.json();
+    } catch (e: any) {
+      clearTimeout(timeoutId);
+      if (e.name === 'AbortError') {
+        throw new Error('Photo batch upload timed out. Please check your network connection and try again.');
+      }
+      throw e;
     }
-    return res.json();
   },
 
   async uploadVideo(file: File): Promise<{ url: string; isVideo: boolean }> {
     const formData = new FormData();
     formData.append('video', file);
-    const res = await fetch(`${API_BASE}/upload/video`, {
-      method: 'POST',
-      headers: getAuthHeader(),
-      body: formData
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to upload video');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000); // 180s timeout
+
+    try {
+      const res = await fetch(`${API_BASE}/upload/video`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Video upload failed with HTTP status ${res.status}`);
+      }
+      return res.json();
+    } catch (e: any) {
+      clearTimeout(timeoutId);
+      if (e.name === 'AbortError') {
+        throw new Error('Video upload timed out. Please check your network connection and try again.');
+      }
+      throw e;
     }
-    return res.json();
   },
 
   // --- MANUAL UPI QR PAYMENTS ---

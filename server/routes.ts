@@ -4,7 +4,8 @@ import { db } from './db.ts';
 import { authenticate, requireRole, generateAuthToken, type AuthenticatedRequest } from './auth.ts';
 import { sanitizePropertyForPublic, sanitizePropertiesListForPublic, sanitizeUser } from './sanitizer.ts';
 import { emailService, sanitizeRedirectUri, sanitizeClientId } from './emailService.ts';
-import { uploadMiddleware, processUploadedFile } from './uploadService.ts';
+import multer from 'multer';
+import { uploadMiddleware, singleImageUpload, multipleImageUpload, videoUpload, processUploadedFile } from './uploadService.ts';
 import { createRateLimiter } from './rateLimiter.ts';
 import type { User, Property, PropertyStatus, EnquiryStatus, SiteVisitStatus, DealerStatus } from '../src/types/index.ts';
 
@@ -318,8 +319,21 @@ router.post('/terms/accept', (req, res) => {
 // 2. MEDIA UPLOAD (Cloudinary / Disk Storage)
 // ==========================================
 
-// Single Image Upload (Dealer & Admin only)
-router.post('/upload/image', authenticate, requireRole(['dealer', 'admin']), uploadMiddleware.single('image'), async (req: AuthenticatedRequest, res) => {
+// Single Image Upload (Up to 20MB, Dealer & Admin only)
+router.post('/upload/image', authenticate, requireRole(['dealer', 'admin']), (req, res, next) => {
+  singleImageUpload.single('image')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'Image exceeds the maximum allowed limit of 20 MB.' });
+        }
+        return res.status(400).json({ error: `Upload error: ${err.message}` });
+      }
+      return res.status(400).json({ error: err.message || 'File validation failed.' });
+    }
+    next();
+  });
+}, async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file uploaded' });
@@ -327,30 +341,85 @@ router.post('/upload/image', authenticate, requireRole(['dealer', 'admin']), upl
     const uploaded = await processUploadedFile(req.file);
     return res.json({ success: true, ...uploaded });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Image upload failed' });
+    const isValidationErr = err.message?.includes('Security verification failed') || err.message?.includes('Unsupported');
+    return res.status(isValidationErr ? 400 : 500).json({ error: err.message || 'Image upload failed' });
   }
 });
 
-// Multiple Images Upload (Up to 10 photos, Dealer & Admin only)
-router.post('/upload/multiple', authenticate, requireRole(['dealer', 'admin']), uploadMiddleware.array('images', 10), async (req: AuthenticatedRequest, res) => {
+// Multiple Images Upload (Up to 10 photos, 20MB each, Dealer & Admin only)
+router.post('/upload/multiple', authenticate, requireRole(['dealer', 'admin']), (req, res, next) => {
+  multipleImageUpload.array('images', 10)(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'One or more images exceed the maximum allowed limit of 20 MB per photo.' });
+        }
+        if (err.code === 'LIMIT_FILE_COUNT') {
+          return res.status(400).json({ error: 'Maximum 10 property photos allowed per upload.' });
+        }
+        return res.status(400).json({ error: `Upload error: ${err.message}` });
+      }
+      return res.status(400).json({ error: err.message || 'File validation failed.' });
+    }
+    next();
+  });
+}, async (req: AuthenticatedRequest, res) => {
   try {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
       return res.status(400).json({ error: 'No images uploaded' });
     }
 
-    const uploadResults = await Promise.all(
-      files.map(file => processUploadedFile(file))
-    );
+    const uploadResults: Array<{ url: string; format: string; size: number; isVideo: boolean; originalName?: string }> = [];
+    const errors: Array<{ originalName: string; error: string }> = [];
 
-    return res.json({ success: true, files: uploadResults });
+    for (const file of files) {
+      try {
+        const uploaded = await processUploadedFile(file);
+        uploadResults.push({ ...uploaded, originalName: file.originalname });
+      } catch (uploadErr: any) {
+        errors.push({
+          originalName: file.originalname,
+          error: uploadErr.message || 'Upload failed'
+        });
+      }
+    }
+
+    // If all files failed, return error status
+    if (uploadResults.length === 0 && errors.length > 0) {
+      const firstError = errors[0].error;
+      const isValidationErr = firstError.includes('Security verification failed') || firstError.includes('Unsupported');
+      return res.status(isValidationErr ? 400 : 500).json({
+        error: firstError,
+        errors
+      });
+    }
+
+    return res.json({
+      success: true,
+      files: uploadResults,
+      errors: errors.length > 0 ? errors : undefined
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Multiple images upload failed' });
   }
 });
 
 // Video Upload (Up to 50MB, Dealer & Admin only)
-router.post('/upload/video', authenticate, requireRole(['dealer', 'admin']), uploadMiddleware.single('video'), async (req: AuthenticatedRequest, res) => {
+router.post('/upload/video', authenticate, requireRole(['dealer', 'admin']), (req, res, next) => {
+  videoUpload.single('video')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'Video exceeds the maximum allowed limit of 50 MB.' });
+        }
+        return res.status(400).json({ error: `Upload error: ${err.message}` });
+      }
+      return res.status(400).json({ error: err.message || 'File validation failed.' });
+    }
+    next();
+  });
+}, async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No video file uploaded' });
@@ -358,7 +427,8 @@ router.post('/upload/video', authenticate, requireRole(['dealer', 'admin']), upl
     const uploaded = await processUploadedFile(req.file);
     return res.json({ success: true, ...uploaded });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Video upload failed' });
+    const isValidationErr = err.message?.includes('Security verification failed') || err.message?.includes('Unsupported');
+    return res.status(isValidationErr ? 400 : 500).json({ error: err.message || 'Video upload failed' });
   }
 });
 

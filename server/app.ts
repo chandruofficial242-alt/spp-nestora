@@ -100,5 +100,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// Global Error Handler for Upload & Body Parsing Limits
+app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err.name === 'MulterError' || (typeof err.code === 'string' && err.code.startsWith('LIMIT_'))) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Uploaded file exceeds the maximum allowed size limit.' });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: 'Maximum 10 property photos allowed per upload.' });
+    }
+    return res.status(400).json({ error: `Upload error: ${err.message}` });
+  }
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    return res.status(413).json({ error: 'Request body exceeds maximum size limit (HTTP 413).' });
+  }
+  if (err) {
+    return res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  }
+  next();
+});
+
 export default app;
 export { app };

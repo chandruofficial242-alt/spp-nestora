@@ -8,8 +8,15 @@ import {
   verifyRazorpayWebhookSignature, 
   handleWebhookPaymentReconciliation 
 } from './paymentService.ts';
-import { requireRole } from './auth.ts';
+import { requireRole, generateAuthToken, verifyAuthToken } from './auth.ts';
 import { sanitizeUser } from './sanitizer.ts';
+import { 
+  PHOTO_MAX_SIZE, 
+  VIDEO_MAX_SIZE, 
+  MAX_PHOTO_COUNT, 
+  validateFileContent, 
+  getSafeCloudinaryDiagnostics 
+} from './uploadService.ts';
 
 async function runTests() {
   console.log('=== STARTING COMPLETE PRODUCTION PAYMENT TEST SUITE ===\n');
@@ -965,6 +972,133 @@ async function runTests() {
   // 10. Security: Nonexistent email lookup prevention
   const nonexistentToken = db.createPasswordResetToken('nonexistent_user@example.com');
   assert(nonexistentToken === null, 'Password reset returns null for nonexistent email');
+
+  // -------------------------------------------------------------
+  // Test Scenario 29: Photo Upload Limits & Magic Byte Verification
+  // -------------------------------------------------------------
+  console.log('\n--- 29. Photo Upload Limits, Content Validation & Safe Media Storage ---');
+  
+  // 1. Photo Limit Constants
+  assert(PHOTO_MAX_SIZE === 20 * 1024 * 1024, 'Photo size limit is configured to exactly 20 MB (20,971,520 bytes)');
+  assert(VIDEO_MAX_SIZE === 50 * 1024 * 1024, 'Video size limit is preserved at exactly 50 MB');
+  assert(MAX_PHOTO_COUNT === 10, 'Maximum photo count is configured to 10 photos per listing batch');
+
+  // Create temporary test files for magic byte content inspection
+  const tempTestDir = path.resolve(process.cwd(), 'uploads', 'test_temp');
+  if (!fs.existsSync(tempTestDir)) {
+    fs.mkdirSync(tempTestDir, { recursive: true });
+  }
+
+  // 2. Genuine JPEG validation (FF D8 FF)
+  const testJpegPath = path.join(tempTestDir, 'test_site_photo.jpg');
+  const jpegHeader = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01]);
+  fs.writeFileSync(testJpegPath, jpegHeader);
+  const jpegCheck = validateFileContent(testJpegPath, false);
+  assert(jpegCheck.valid === true, 'Accepts genuine JPEG property photo');
+  assert(jpegCheck.detectedMime === 'image/jpeg', 'Detects genuine JPEG MIME type from magic bytes');
+
+  // 3. Genuine PNG validation (89 50 4E 47 0D 0A 1A 0A)
+  const testPngPath = path.join(tempTestDir, 'test_site_layout.png');
+  const pngHeader = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52]);
+  fs.writeFileSync(testPngPath, pngHeader);
+  const pngCheck = validateFileContent(testPngPath, false);
+  assert(pngCheck.valid === true, 'Accepts genuine PNG property photo');
+  assert(pngCheck.detectedMime === 'image/png', 'Detects genuine PNG MIME type from magic bytes');
+
+  // 4. Genuine WEBP validation (RIFF....WEBP)
+  const testWebpPath = path.join(tempTestDir, 'test_elevation.webp');
+  const webpHeader = Buffer.concat([
+    Buffer.from('RIFF', 'ascii'),
+    Buffer.from([0x20, 0x00, 0x00, 0x00]),
+    Buffer.from('WEBP', 'ascii'),
+    Buffer.from('VP8 ', 'ascii')
+  ]);
+  fs.writeFileSync(testWebpPath, webpHeader);
+  const webpCheck = validateFileContent(testWebpPath, false);
+  assert(webpCheck.valid === true, 'Accepts genuine WEBP property photo');
+  assert(webpCheck.detectedMime === 'image/webp', 'Detects genuine WEBP MIME type from magic bytes');
+
+  // 5. Security: Disguised non-image file with image extension is strictly blocked
+  const fakeImagePath = path.join(tempTestDir, 'disguised_script.jpg');
+  fs.writeFileSync(fakeImagePath, Buffer.from('<?php echo "malicious"; ?>\n<script>alert(1)</script>'));
+  const fakeCheck = validateFileContent(fakeImagePath, false);
+  assert(fakeCheck.valid === false, 'Strictly rejects non-image files disguised with .jpg extension');
+  assert(fakeCheck.error?.includes('Security verification failed') === true, 'Provides security verification failure explanation');
+
+  // 6. Security: Corrupt / empty file rejection
+  const emptyFilePath = path.join(tempTestDir, 'empty.jpg');
+  fs.writeFileSync(emptyFilePath, Buffer.alloc(2));
+  const emptyCheck = validateFileContent(emptyFilePath, false);
+  assert(emptyCheck.valid === false, 'Strictly rejects corrupt or empty image files');
+
+  // 7. Video validation: MP4 magic bytes
+  const testMp4Path = path.join(tempTestDir, 'tour.mp4');
+  const mp4Header = Buffer.from([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D, 0x00, 0x00, 0x02, 0x00]);
+  fs.writeFileSync(testMp4Path, mp4Header);
+  const mp4Check = validateFileContent(testMp4Path, true);
+  assert(mp4Check.valid === true, 'Accepts genuine MP4 video file for property walkthrough');
+  assert(mp4Check.detectedMime === 'video/mp4', 'Detects video/mp4 MIME type from ftyp header');
+
+  // 8. Image vs Video isolation: image rejected when uploaded to video endpoint
+  const imageAsVideoCheck = validateFileContent(testJpegPath, true);
+  assert(imageAsVideoCheck.valid === false, 'Rejects image uploaded to video endpoint');
+
+  // 9. Clean up temp files
+  try {
+    fs.rmSync(tempTestDir, { recursive: true, force: true });
+  } catch {}
+
+  // 10. Cloudinary Safe Diagnostics (No secrets leaked)
+  const safeDiag = getSafeCloudinaryDiagnostics();
+  assert(typeof safeDiag.isConfigured === 'boolean', 'Safe diagnostic reports configuration status as boolean');
+  assert(typeof safeDiag.hasCloudName === 'boolean', 'Safe diagnostic reports cloud name presence');
+  assert(typeof safeDiag.hasApiKey === 'boolean', 'Safe diagnostic reports API key presence');
+  assert(typeof safeDiag.hasApiSecret === 'boolean', 'Safe diagnostic reports API secret presence');
+  assert((safeDiag as any).apiSecret === undefined, 'Safe diagnostic NEVER exposes raw API secret');
+  assert((safeDiag as any).apiKey === undefined, 'Safe diagnostic NEVER exposes raw API key');
+  assert((safeDiag as any).password === undefined, 'Safe diagnostic NEVER exposes passwords or tokens');
+
+  // -------------------------------------------------------------
+  // Test Scenario 30: Authentication Security & Login Behavior
+  // -------------------------------------------------------------
+  console.log('\n--- 30. Authentication Security & Login Behavior Verification ---');
+
+  // 1. Dealer login with valid credentials
+  const dealerAuth = db.verifyPassword('dealer@sppnestora.com', 'dealer123');
+  assert(dealerAuth !== null, 'Dealer authentication succeeds with valid credentials');
+  assert(dealerAuth?.role === 'dealer', 'Dealer account has verified dealer role');
+
+  // 2. Customer login with valid credentials
+  const customerAuth = db.verifyPassword('customer@sppnestora.com', 'customer123');
+  assert(customerAuth !== null, 'Customer authentication succeeds with valid credentials');
+  assert(customerAuth?.role === 'customer', 'Customer account has customer role');
+
+  // 3. Login with wrong password strictly returns null (HTTP 401 equivalent)
+  const wrongPassAuth = db.verifyPassword('dealer@sppnestora.com', 'completely_wrong_pass');
+  assert(wrongPassAuth === null, 'Login with incorrect password strictly fails (returns null for 401)');
+
+  // 4. Case-insensitive and trimmed email lookup
+  const caseAuth = db.verifyPassword('  DEALER@sppnestora.com  ', 'dealer123');
+  assert(caseAuth !== null, 'Login normalizes email case and surrounding whitespace');
+
+  // 5. JWT token creation and verification
+  const testToken = generateAuthToken(dealerAuth!);
+  assert(typeof testToken === 'string' && testToken.split('.').length === 3, 'Issues signed 3-part JWT session token');
+  const tokenPayload = verifyAuthToken(testToken);
+  assert(tokenPayload !== null, 'Valid token passes cryptographic verification');
+  assert(tokenPayload?.userId === dealerAuth!.id, 'Token payload preserves correct userId');
+  assert(tokenPayload?.role === 'dealer', 'Token payload preserves correct user role');
+
+  // 6. Tampered JWT token strictly rejected
+  const tamperedToken = testToken.slice(0, -5) + 'xxxxx';
+  const tamperedPayload = verifyAuthToken(tamperedToken);
+  assert(tamperedPayload === null, 'Tampered token signature is strictly rejected');
+
+  // 7. Sanitized user object strips all sensitive security fields
+  const sanitizedDealer = sanitizeUser(dealerAuth!);
+  assert((sanitizedDealer as any).passwordHash === undefined, 'Sanitized user strictly excludes passwordHash');
+  assert((sanitizedDealer as any).salt === undefined, 'Sanitized user strictly excludes salt');
+  assert((sanitizedDealer as any).resetTokenHash === undefined, 'Sanitized user strictly excludes resetTokenHash');
 
   // -------------------------------------------------------------
   // Summary

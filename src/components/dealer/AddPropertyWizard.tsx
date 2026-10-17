@@ -267,21 +267,67 @@ export const AddPropertyWizard: React.FC = () => {
     });
   };
 
-  // Handle Multi-Image File Upload
+  // Handle Multi-Image File Upload (Up to 20MB per photo)
+  const MAX_PHOTO_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const files = Array.from(fileList);
+    const validFiles: File[] = [];
+    const sizeRejected: string[] = [];
+    const typeRejected: string[] = [];
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+
+    files.forEach(file => {
+      const extMatch = file.name.match(/\.(jpe?g|png|webp)$/i);
+      const isMimeOk = allowedTypes.includes(file.type.toLowerCase()) || Boolean(extMatch);
+      if (!isMimeOk) {
+        typeRejected.push(file.name);
+      } else if (file.size > MAX_PHOTO_SIZE_BYTES) {
+        sizeRejected.push(`${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`);
+      } else {
+        validFiles.push(file);
+      }
+    });
+
+    if (typeRejected.length > 0) {
+      showToast(`Rejected ${typeRejected.length} unsupported file(s): ${typeRejected.join(', ')}. Only JPG, PNG, and WEBP allowed.`, 'error');
+    }
+
+    if (sizeRejected.length > 0) {
+      showToast(`Rejected file(s) exceeding 20MB limit: ${sizeRejected.join(', ')}. Max size is 20MB per photo.`, 'error');
+    }
+
+    if (validFiles.length === 0) {
+      e.target.value = '';
+      return;
+    }
+
+    // Check total photos limit (Max 10 photos)
+    const currentCount = formData.images?.length || 0;
+    if (currentCount + validFiles.length > 10) {
+      const allowedCount = Math.max(0, 10 - currentCount);
+      if (allowedCount === 0) {
+        showToast('Maximum 10 property photos allowed. Please remove existing photos before uploading more.', 'error');
+        e.target.value = '';
+        return;
+      }
+      showToast(`You can only upload ${allowedCount} more photo(s) to reach the 10 photos limit. Uploading the first ${allowedCount}.`, 'info');
+      validFiles.splice(allowedCount);
+    }
 
     setUploadingMedia(true);
     try {
-      const fileArray = Array.from(files);
-      const res = await apiService.uploadMultipleImages(fileArray);
+      const res = await apiService.uploadMultipleImages(validFiles);
       
-      if (res && res.files) {
+      if (res && res.files && res.files.length > 0) {
         const newImages: PropertyImage[] = res.files.map((f, i) => ({
           id: `img-${Date.now()}-${i}`,
           url: f.url,
-          caption: `Uploaded photo ${(formData.images?.length || 0) + i + 1}`,
+          caption: f.originalName ? f.originalName.replace(/\.[^/.]+$/, '') : `Uploaded photo ${(formData.images?.length || 0) + i + 1}`,
           isCover: (formData.images?.length || 0) === 0 && i === 0
         }));
 
@@ -289,7 +335,12 @@ export const AddPropertyWizard: React.FC = () => {
           ...prev,
           images: [...(prev.images || []), ...newImages]
         }));
-        showToast(`Successfully uploaded ${res.files.length} property images!`, 'success');
+        showToast(`Successfully uploaded ${res.files.length} property photo(s) (up to 20MB)!`, 'success');
+      }
+
+      if (res && res.errors && res.errors.length > 0) {
+        const failedNames = res.errors.map(err => `${err.originalName}: ${err.error}`).join('; ');
+        showToast(`Some photo(s) could not be processed: ${failedNames}`, 'error');
       }
     } catch (err: any) {
       console.error('File upload error:', err);
@@ -1729,28 +1780,33 @@ export const AddPropertyWizard: React.FC = () => {
           </div>
 
           {/* File Upload Zone */}
-          <div className="border-2 border-dashed border-slate-300 hover:border-brand-600 rounded-2xl p-6 text-center bg-slate-50 transition">
+          <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition ${uploadingMedia ? 'border-brand-400 bg-brand-50/40 opacity-75 cursor-not-allowed' : 'border-slate-300 hover:border-brand-600 bg-slate-50'}`}>
             <input
               type="file"
               id="property-images-file-input"
               multiple
               accept="image/jpeg,image/png,image/webp"
               onChange={handleFileUpload}
+              disabled={uploadingMedia}
               className="hidden"
             />
             <label
-              htmlFor="property-images-file-input"
-              className="cursor-pointer flex flex-col items-center space-y-2"
+              htmlFor={uploadingMedia ? undefined : "property-images-file-input"}
+              className={`${uploadingMedia ? 'cursor-not-allowed' : 'cursor-pointer'} flex flex-col items-center space-y-2`}
             >
               <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-800 flex items-center justify-center">
-                <Upload className="w-6 h-6" />
+                {uploadingMedia ? (
+                  <Loader2 className="w-6 h-6 animate-spin text-brand-800" />
+                ) : (
+                  <Upload className="w-6 h-6" />
+                )}
               </div>
               <div>
                 <span className="text-sm font-bold text-brand-800 hover:underline">
-                  Click to Browse & Upload Photos
+                  {uploadingMedia ? 'Uploading Photos...' : 'Click to Browse & Upload Photos'}
                 </span>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Select multiple JPG, PNG, or WEBP photos (Max 10MB each)
+                  Select multiple JPG, PNG, or WEBP photos (Max 20MB each)
                 </p>
               </div>
             </label>
