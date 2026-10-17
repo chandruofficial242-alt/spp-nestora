@@ -340,8 +340,25 @@ export async function processUploadedFile(file: Express.Multer.File): Promise<{ 
 
       // In production, never silently fall back to ephemeral local disk
       if (statusCode === 403) {
+        let reason = 'Forbidden';
+        try {
+          const probe = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, {
+            method: 'POST'
+          });
+          const cldError = probe.headers.get('x-cld-error');
+          if (cldError) {
+            reason = cldError.trim();
+          } else {
+            const probeText = await probe.text().catch(() => '');
+            const parsed = JSON.parse(probeText);
+            if (parsed?.error?.message) reason = parsed.error.message.trim();
+          }
+        } catch {}
+
+        console.error(`[Cloudinary 403 Diagnostic] Exact Provider Reason: ${reason}`);
+
         throw new Error(
-          'Media storage upload failed (HTTP 403 Forbidden). Cloudinary rejected the request. Please check CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in Render environment variables, or ensure your Cloudinary account is active.'
+          `Media storage upload failed (Cloudinary HTTP 403 Forbidden: ${reason}). Please check CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in Render environment variables, or ensure your Cloudinary account is active.`
         );
       }
 
