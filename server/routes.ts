@@ -212,6 +212,93 @@ router.post('/auth/reset-password', authLimiter, (req, res) => {
   }
 });
 
+/**
+ * 1.5 Emergency Admin Recovery Endpoints (Works without Render Shell)
+ * Requires ADMIN_RECOVERY_KEY configured in environment variables.
+ */
+router.post('/auth/emergency-admin-reset', authLimiter, async (req, res) => {
+  try {
+    const { recoveryKey, newPassword } = req.body;
+    const configuredKey = process.env.ADMIN_RECOVERY_KEY;
+
+    if (!configuredKey || typeof configuredKey !== 'string' || configuredKey.trim().length < 8) {
+      return res.status(403).json({
+        error: 'Emergency admin recovery is disabled. Set ADMIN_RECOVERY_KEY in server environment variables to enable.'
+      });
+    }
+
+    if (!recoveryKey || typeof recoveryKey !== 'string') {
+      return res.status(400).json({ error: 'Recovery key is required.' });
+    }
+
+    const hashA = crypto.createHash('sha256').update(recoveryKey.trim()).digest();
+    const hashB = crypto.createHash('sha256').update(configuredKey.trim()).digest();
+    if (!crypto.timingSafeEqual(hashA, hashB)) {
+      return res.status(403).json({ error: 'Invalid recovery key.' });
+    }
+
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+    }
+
+    const resetResult = await db.emergencyResetAdminPasswordAsync(newPassword);
+    if (!resetResult.success) {
+      return res.status(500).json({ error: resetResult.error || 'Emergency password reset failed.' });
+    }
+
+    return res.json({
+      success: true,
+      adminEmail: resetResult.adminEmail,
+      message: 'Admin account password successfully updated. You can now sign in at /login.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Emergency recovery failed.' });
+  }
+});
+
+router.post('/auth/admin-recovery-token', authLimiter, (req, res) => {
+  try {
+    const { recoveryKey } = req.body;
+    const configuredKey = process.env.ADMIN_RECOVERY_KEY;
+
+    if (!configuredKey || typeof configuredKey !== 'string' || configuredKey.trim().length < 8) {
+      return res.status(403).json({
+        error: 'Admin recovery token generation is disabled. Set ADMIN_RECOVERY_KEY in server environment variables to enable.'
+      });
+    }
+
+    if (!recoveryKey || typeof recoveryKey !== 'string') {
+      return res.status(400).json({ error: 'Recovery key is required.' });
+    }
+
+    const hashA = crypto.createHash('sha256').update(recoveryKey.trim()).digest();
+    const hashB = crypto.createHash('sha256').update(configuredKey.trim()).digest();
+    if (!crypto.timingSafeEqual(hashA, hashB)) {
+      return res.status(403).json({ error: 'Invalid recovery key.' });
+    }
+
+    const tokenInfo = db.createPasswordResetToken('admin@sppnestora.com');
+    if (!tokenInfo) {
+      return res.status(500).json({ error: 'Failed to generate admin recovery token.' });
+    }
+
+    const host = req.get('host') || 'localhost:5000';
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const origin = req.get('origin') || process.env.CLIENT_URL || `${protocol}://${host}`;
+    const resetUrl = `${origin}/reset-password?token=${tokenInfo.rawToken}`;
+
+    return res.json({
+      success: true,
+      adminEmail: tokenInfo.deliveryEmail,
+      resetUrl,
+      expiresAt: (tokenInfo.user as any).resetTokenExpiry,
+      message: 'Expiring single-use reset URL generated successfully.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Recovery token generation failed.' });
+  }
+});
+
 router.get('/auth/me', authenticate, (req: AuthenticatedRequest, res) => {
   return res.json({ user: req.user });
 });
