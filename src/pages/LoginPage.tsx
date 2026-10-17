@@ -53,29 +53,29 @@ export const LoginPage: React.FC = () => {
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-8 sm:p-10 rounded-3xl border border-slate-200 shadow-elevated">
+      <div className="max-w-md w-full space-y-8 bg-white/98 backdrop-blur-xl p-8 sm:p-10 rounded-3xl border border-champagne-300/60 shadow-premium">
         
         {/* Brand Header */}
         <div className="text-center space-y-2">
           <Link to="/" className="inline-flex items-center space-x-2">
-            <div className="w-10 h-10 rounded-xl bg-brand-800 text-white flex items-center justify-center font-black">
-              <Building2 className="w-6 h-6 text-emerald-300" />
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-700 to-brand-950 border border-champagne-400/30 text-white flex items-center justify-center font-black shadow-md">
+              <Building2 className="w-6 h-6 text-champagne-300" />
             </div>
-            <span className="text-2xl font-black text-slate-900">SPP Nestora</span>
+            <span className="text-2xl font-black text-slate-900 tracking-tight">SPP Nestora</span>
           </Link>
           <h2 className="text-xl font-bold text-slate-900 mt-3">{t.auth.welcomeBack}</h2>
           <p className="text-xs text-slate-500">{t.auth.loginSubtitle}</p>
         </div>
 
         {/* Role Selector Tabs */}
-        <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold">
+        <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-ivory-200/80 rounded-2xl border border-champagne-200/70 text-xs font-bold shadow-2xs">
           <button
             type="button"
             onClick={() => setSelectedRole('customer')}
-            className={`py-2 rounded-lg transition ${
+            className={`py-2 rounded-xl transition ${
               selectedRole === 'customer'
-                ? 'bg-white text-brand-900 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-brand-900 text-white shadow-gold'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
             }`}
           >
             Customer
@@ -83,10 +83,10 @@ export const LoginPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setSelectedRole('dealer')}
-            className={`py-2 rounded-lg transition ${
+            className={`py-2 rounded-xl transition ${
               selectedRole === 'dealer'
-                ? 'bg-white text-brand-900 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-brand-900 text-white shadow-gold'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
             }`}
           >
             Dealer
@@ -94,10 +94,10 @@ export const LoginPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setSelectedRole('admin')}
-            className={`py-2 rounded-lg transition ${
+            className={`py-2 rounded-xl transition ${
               selectedRole === 'admin'
-                ? 'bg-white text-brand-900 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-brand-900 text-white shadow-gold'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
             }`}
           >
             Admin
@@ -118,7 +118,7 @@ export const LoginPage: React.FC = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
-                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-hidden"
+                className="w-full pl-10 pr-4 py-2.5 text-sm bg-ivory-50/50 border border-champagne-200/80 rounded-xl focus:border-brand-600 focus:ring-1 focus:ring-brand-600 outline-hidden shadow-2xs"
               />
             </div>
           </div>
@@ -128,7 +128,7 @@ export const LoginPage: React.FC = () => {
               <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                 {t.auth.password}
               </label>
-              <Link to="/forgot-password" className="text-xs text-brand-700 hover:underline font-semibold">
+              <Link to="/forgot-password" className="text-xs text-brand-800 hover:underline font-semibold">
                 {t.auth.forgotPassword}
               </Link>
             </div>
@@ -140,44 +140,44 @@ export const LoginPage: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-hidden"
+                className="w-full pl-10 pr-4 py-2.5 text-sm bg-ivory-50/50 border border-champagne-200/80 rounded-xl focus:border-brand-600 focus:ring-1 focus:ring-brand-600 outline-hidden shadow-2xs"
               />
             </div>
           </div>
 
           <button
             type="submit"
-            className="w-full py-3 bg-brand-800 hover:bg-brand-900 text-white rounded-xl font-bold text-sm shadow-md transition flex items-center justify-center space-x-2"
+            className="w-full py-3 bg-gradient-to-r from-brand-800 to-brand-950 hover:from-brand-700 hover:to-brand-900 text-white border border-champagne-400/30 rounded-xl font-bold text-sm shadow-gold transition flex items-center justify-center space-x-2"
           >
             <span>{t.auth.loginBtn}</span>
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-4 h-4 text-champagne-300" />
           </button>
         </form>
 
         {/* Demo Fast-Login Helpers */}
-        <div className="pt-4 border-t border-slate-100 space-y-2">
-          <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider text-center">
+        <div className="pt-4 border-t border-champagne-100 space-y-2">
+          <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider text-center">
             Quick 1-Click Demo Logins:
           </p>
           <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={() => handleQuickDemoLogin('customer')}
-              className="py-1.5 px-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 text-center"
+              className="py-1.5 px-2 bg-ivory-50 hover:bg-ivory-100 border border-champagne-200/70 rounded-xl text-[11px] font-bold text-slate-700 text-center transition"
             >
               Demo Customer
             </button>
             <button
               type="button"
               onClick={() => handleQuickDemoLogin('dealer')}
-              className="py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-[11px] font-bold text-emerald-800 text-center"
+              className="py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-[11px] font-bold text-emerald-900 text-center transition"
             >
               Demo Dealer
             </button>
             <button
               type="button"
               onClick={() => handleQuickDemoLogin('admin')}
-              className="py-1.5 px-2 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg text-[11px] font-bold text-brand-900 text-center"
+              className="py-1.5 px-2 bg-champagne-100/70 hover:bg-champagne-100 border border-champagne-300/70 rounded-xl text-[11px] font-bold text-brand-950 text-center transition"
             >
               Demo Admin
             </button>
@@ -188,7 +188,7 @@ export const LoginPage: React.FC = () => {
         <div className="text-center pt-2">
           <Link
             to="/register"
-            className="text-xs font-semibold text-brand-800 hover:underline"
+            className="text-xs font-semibold text-brand-900 hover:underline"
           >
             {t.auth.dontHaveAccount}
           </Link>

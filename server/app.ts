@@ -57,10 +57,28 @@ app.get('/auth/google/callback', (req, res) => {
   res.redirect(`/api/auth/google/callback${query ? `?${query}` : ''}`);
 });
 
-// 5. Serve static client build (dist/) in production with SPA fallback
+// 5. Serve static client build (dist/) in production with SPA fallback and cache optimization
 const distPath = path.resolve(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
+  // Hashed Vite static assets (immutable 1 year caching)
+  const assetsPath = path.join(distPath, 'assets');
+  if (fs.existsSync(assetsPath)) {
+    app.use('/assets', express.static(assetsPath, {
+      maxAge: '1y',
+      immutable: true
+    }));
+  }
+
+  // Root static files (favicon, robots, etc.) with no-cache on HTML
+  app.use(express.static(distPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    }
+  }));
 }
 
 app.use((req, res, next) => {
@@ -73,6 +91,9 @@ app.use((req, res, next) => {
   ) {
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       return res.sendFile(indexPath);
     }
   }

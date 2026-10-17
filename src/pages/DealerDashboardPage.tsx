@@ -147,9 +147,9 @@ export const DealerDashboardPage: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
       
       {/* Dealer Header */}
-      <div className="bg-gradient-to-r from-brand-950 via-slate-900 to-navy-950 text-white rounded-3xl p-6 sm:p-8 shadow-elevated flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="bg-gradient-to-r from-brand-950 via-[#04281d] to-[#01140e] text-white rounded-3xl p-6 sm:p-8 shadow-premium border border-champagne-400/25 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center space-x-4">
-          <div className="w-16 h-16 rounded-2xl bg-brand-700/40 border border-brand-500/40 text-emerald-300 flex items-center justify-center text-2xl font-black">
+          <div className="w-16 h-16 rounded-2xl bg-brand-800/80 border border-champagne-400/40 text-champagne-300 flex items-center justify-center text-2xl font-black shadow-md">
             <Building2 className="w-8 h-8" />
           </div>
           <div>
@@ -158,18 +158,18 @@ export const DealerDashboardPage: React.FC = () => {
                 {currentUser?.businessName || currentUser?.name || 'Authorized Dealer'}
               </h1>
               {currentUser?.dealerStatus === 'verified' ? (
-                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] uppercase font-bold px-2 py-0.5 rounded flex items-center space-x-1">
+                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full flex items-center space-x-1">
                   <ShieldCheck className="w-3 h-3" />
                   <span>Verified Dealer</span>
                 </span>
               ) : (
-                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] uppercase font-bold px-2 py-0.5 rounded flex items-center space-x-1">
+                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full flex items-center space-x-1">
                   <Clock className="w-3 h-3" />
                   <span>Pending Admin Review</span>
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-champagne-200/80 mt-0.5">
               {currentUser?.email} • {currentUser?.district || 'Tamil Nadu'}
             </p>
           </div>
@@ -178,9 +178,9 @@ export const DealerDashboardPage: React.FC = () => {
         <div className="flex items-center space-x-3">
           <Link
             to="/dealer/add-property"
-            className="inline-flex items-center space-x-2 px-5 py-2.5 bg-brand-700 hover:bg-brand-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition"
+            className="inline-flex items-center space-x-2 px-5 py-2.5 bg-gradient-to-r from-brand-700 to-brand-800 hover:from-brand-600 hover:to-brand-700 text-white border border-champagne-400/30 rounded-xl text-xs sm:text-sm font-bold shadow-gold transition"
           >
-            <PlusCircle className="w-4 h-4 text-emerald-300" />
+            <PlusCircle className="w-4 h-4 text-champagne-300" />
             <span>{t.nav.addProperty}</span>
           </Link>
         </div>
@@ -189,32 +189,32 @@ export const DealerDashboardPage: React.FC = () => {
       {/* KPI Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
         
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-subtle">
+        <div className="bg-white p-4 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
           <span className="text-[11px] text-slate-400 font-bold uppercase">{t.dashboard.totalProperties}</span>
           <span className="text-2xl font-black text-slate-900 mt-1 block">{myListings.length}</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-subtle">
+        <div className="bg-white p-4 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
           <span className="text-[11px] text-slate-400 font-bold uppercase">{t.dashboard.activeListings}</span>
-          <span className="text-2xl font-black text-emerald-700 mt-1 block">{activeCount}</span>
+          <span className="text-2xl font-black text-brand-900 mt-1 block">{activeCount}</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-subtle">
+        <div className="bg-white p-4 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
           <span className="text-[11px] text-slate-400 font-bold uppercase">{t.dashboard.soldProperties}</span>
-          <span className="text-2xl font-black text-blue-700 mt-1 block">{soldCount}</span>
+          <span className="text-2xl font-black text-slate-700 mt-1 block">{soldCount}</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-subtle">
+        <div className="bg-white p-4 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
           <span className="text-[11px] text-slate-400 font-bold uppercase">{t.dashboard.rentedProperties}</span>
-          <span className="text-2xl font-black text-indigo-700 mt-1 block">{rentedCount}</span>
+          <span className="text-2xl font-black text-slate-700 mt-1 block">{rentedCount}</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-subtle">
+        <div className="bg-white p-4 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
           <span className="text-[11px] text-slate-400 font-bold uppercase">{t.dashboard.pendingApproval}</span>
           <span className="text-2xl font-black text-amber-600 mt-1 block">{pendingCount}</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-subtle">
+        <div className="bg-white p-4 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
           <span className="text-[11px] text-slate-400 font-bold uppercase">Listing Fees Paid</span>
           <span className="text-2xl font-black text-brand-900 mt-1 block">₹{totalFeesPaid}</span>
         </div>
@@ -222,11 +222,11 @@ export const DealerDashboardPage: React.FC = () => {
       </div>
 
       {/* Tabs Switcher */}
-      <div className="flex space-x-2 border-b border-slate-200 pb-2">
+      <div className="flex space-x-2 border-b border-champagne-200/80 pb-2">
         <button
           onClick={() => setActiveTab('listings')}
           className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
-            activeTab === 'listings' ? 'bg-brand-800 text-white shadow-xs' : 'bg-white text-slate-600 hover:bg-slate-50'
+            activeTab === 'listings' ? 'bg-brand-900 text-white shadow-gold' : 'bg-white text-slate-600 hover:bg-ivory-100 border border-champagne-200/60'
           }`}
         >
           {t.dashboard.myListings} ({myListings.length})
@@ -234,7 +234,7 @@ export const DealerDashboardPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('payments')}
           className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
-            activeTab === 'payments' ? 'bg-brand-800 text-white shadow-xs' : 'bg-white text-slate-600 hover:bg-slate-50'
+            activeTab === 'payments' ? 'bg-brand-900 text-white shadow-gold' : 'bg-white text-slate-600 hover:bg-ivory-100 border border-champagne-200/60'
           }`}
         >
           {t.dashboard.payments} ({myPayments.length})

@@ -41,16 +41,16 @@ export const Navbar: React.FC = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-champagne-200/60 shadow-subtle">
       
       {/* Top micro announcement bar */}
-      <div className="bg-gradient-to-r from-brand-900 via-brand-800 to-emerald-900 text-white text-[11px] sm:text-xs py-1.5 px-4">
+      <div className="bg-gradient-to-r from-brand-950 via-brand-900 to-[#043323] text-white text-[11px] sm:text-xs py-1.5 px-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-2 truncate">
-            <span className="bg-white/20 text-emerald-200 font-bold px-1.5 py-0.5 rounded text-[10px] tracking-wider uppercase">
+            <span className="bg-champagne-400/20 text-champagne-300 border border-champagne-400/30 font-bold px-1.5 py-0.5 rounded text-[10px] tracking-wider uppercase">
               Tamil Nadu Desk
             </span>
-            <span className="truncate opacity-90 hidden sm:inline">
+            <span className="truncate opacity-90 hidden sm:inline text-champagne-100">
               {language === 'ta' 
                 ? 'அனைத்து விசாரணைகளும் SPP நெஸ்டோரா அதிகாரப்பூர்வ குழுவால் ஒருங்கிணைக்கப்படுகின்றன' 
                 : 'All enquiries & site visits are directly coordinated by SPP Nestora Admin team'}
@@ -60,9 +60,9 @@ export const Navbar: React.FC = () => {
           <div className="flex items-center space-x-4 flex-shrink-0 text-xs font-medium">
             <a 
               href={`tel:${settings.officialPhone}`} 
-              className="flex items-center space-x-1 text-emerald-200 hover:text-white transition"
+              className="flex items-center space-x-1 text-champagne-200 hover:text-white transition"
             >
-              <PhoneCall className="w-3 h-3 text-emerald-400" />
+              <PhoneCall className="w-3 h-3 text-champagne-300" />
               <span>{settings.officialPhoneDisplay}</span>
             </a>
             <div className="h-3 w-px bg-white/20 hidden md:block" />
@@ -79,15 +79,15 @@ export const Navbar: React.FC = () => {
           
           {/* Brand Logo & Tagline */}
           <Link to="/" className="flex items-center space-x-3 group flex-shrink-0">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-700 to-brand-950 flex items-center justify-center text-white shadow-md shadow-brand-900/15 group-hover:scale-105 transition-all">
-              <Building2 className="w-6 h-6 text-emerald-300" />
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-700 to-brand-950 border border-champagne-400/30 flex items-center justify-center text-white shadow-md shadow-brand-900/15 group-hover:scale-105 transition-all">
+              <Building2 className="w-6 h-6 text-champagne-300" />
             </div>
             <div>
               <div className="flex items-center space-x-1.5">
-                <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 group-hover:text-brand-800 transition">
+                <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 group-hover:text-brand-900 transition">
                   SPP Nestora
                 </span>
-                <span className="text-[10px] bg-emerald-100 text-brand-800 font-bold px-1.5 py-0.5 rounded border border-emerald-200 uppercase tracking-wider">
+                <span className="text-[10px] bg-champagne-100 text-brand-950 font-bold px-1.5 py-0.5 rounded border border-champagne-300 uppercase tracking-wider">
                   TN
                 </span>
               </div>
@@ -105,8 +105,8 @@ export const Navbar: React.FC = () => {
                 to={link.path}
                 className={`px-3 py-2 rounded-xl text-sm font-semibold transition-all ${
                   isCurrent(link.path)
-                    ? 'text-brand-800 bg-brand-50/80 font-bold'
-                    : 'text-slate-600 hover:text-brand-700 hover:bg-slate-50'
+                    ? 'text-brand-900 bg-champagne-100/70 border border-champagne-300/60 font-bold'
+                    : 'text-slate-600 hover:text-brand-900 hover:bg-ivory-100'
                 }`}
               >
                 {link.label}
@@ -123,7 +123,7 @@ export const Navbar: React.FC = () => {
             {/* Saved Properties */}
             <Link
               to="/saved-properties"
-              className="relative p-2 rounded-xl text-slate-600 hover:text-brand-700 hover:bg-slate-100/80 transition"
+              className="relative p-2 rounded-xl text-slate-600 hover:text-brand-900 hover:bg-ivory-100 transition"
               title={t.nav.saved}
             >
               <Heart className="w-5 h-5" />
@@ -137,9 +137,9 @@ export const Navbar: React.FC = () => {
             {/* Post Property CTA */}
             <Link
               to="/dealer/add-property"
-              className="hidden sm:inline-flex items-center space-x-1.5 px-4 py-2 bg-brand-700 hover:bg-brand-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm shadow-brand-700/20 hover:shadow transition group"
+              className="hidden sm:inline-flex items-center space-x-1.5 px-4 py-2 bg-gradient-to-r from-brand-700 to-brand-800 hover:from-brand-600 hover:to-brand-700 text-white border border-champagne-400/30 rounded-xl text-xs sm:text-sm font-bold shadow-gold transition group"
             >
-              <PlusCircle className="w-4 h-4 text-emerald-300 group-hover:rotate-90 transition-transform duration-300" />
+              <PlusCircle className="w-4 h-4 text-champagne-300 group-hover:rotate-90 transition-transform duration-300" />
               <span>{t.nav.addProperty}</span>
             </Link>
 

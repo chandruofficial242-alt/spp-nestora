@@ -237,19 +237,19 @@ export const AdminDashboardPage: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
       
       {/* Admin Top Header */}
-      <div className="bg-gradient-to-r from-navy-950 via-slate-900 to-brand-950 text-white rounded-3xl p-6 sm:p-8 shadow-elevated flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-brand-950 via-[#04281d] to-[#01140e] text-white rounded-3xl p-6 sm:p-8 shadow-premium border border-champagne-400/25 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-2xl bg-brand-800/80 border border-champagne-400/40 text-champagne-300 flex items-center justify-center shadow-md">
             <Shield className="w-8 h-8" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
               <h1 className="text-xl sm:text-2xl font-black">SPP Nestora Admin Command Center</h1>
-              <span className="bg-emerald-400/20 text-emerald-300 border border-emerald-400/30 text-[10px] uppercase font-bold px-2 py-0.5 rounded">
+              <span className="bg-champagne-400/20 text-champagne-300 border border-champagne-400/30 text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">
                 Super Admin
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-champagne-200/80 mt-0.5">
               Tamil Nadu Real Estate Operations • Centralized Enquiry Desk • Official: {settings.officialPhoneDisplay}
             </p>
           </div>
@@ -259,7 +259,7 @@ export const AdminDashboardPage: React.FC = () => {
           {/* Notifications Trigger */}
           <button
             onClick={() => setShowNotificationsModal(true)}
-            className="relative p-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white transition cursor-pointer"
+            className="relative p-2.5 bg-white/10 hover:bg-white/20 border border-champagne-400/30 rounded-xl text-white transition cursor-pointer"
             title="Admin Notifications"
           >
             <Bell className="w-5 h-5" />
@@ -272,16 +272,16 @@ export const AdminDashboardPage: React.FC = () => {
 
           <button
             onClick={() => setActiveSection('settings')}
-            className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
+            className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-champagne-400/30 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer text-white"
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-4 h-4 text-champagne-300" />
             <span>Contact Settings</span>
           </button>
         </div>
       </div>
 
       {/* Navigation Pills Bar */}
-      <div className="flex space-x-2 overflow-x-auto pb-2 border-b border-slate-200 scrollbar-thin">
+      <div className="flex space-x-2 overflow-x-auto pb-2 border-b border-champagne-200/80 scrollbar-thin">
         {[
           { id: 'overview', label: 'Overview', icon: <Layers className="w-4 h-4" /> },
           { id: 'manual_payments', label: `Manual UPI (${pendingManualPayments.length})`, icon: <QrCode className="w-4 h-4" />, badge: pendingManualPayments.length > 0 },
@@ -299,8 +299,8 @@ export const AdminDashboardPage: React.FC = () => {
             onClick={() => setActiveSection(tab.id as any)}
             className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition whitespace-nowrap cursor-pointer ${
               activeSection === tab.id
-                ? 'bg-brand-900 text-white shadow-sm'
-                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+                ? 'bg-brand-900 text-white shadow-gold border border-champagne-400/30'
+                : 'bg-white text-slate-600 hover:bg-ivory-100 border border-champagne-200/70'
             }`}
           >
             {tab.icon}
@@ -318,28 +318,28 @@ export const AdminDashboardPage: React.FC = () => {
           
           {/* Main KPI Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-subtle">
+            <div className="bg-white p-5 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
               <span className="text-xs text-slate-400 font-bold uppercase block">Total Revenue</span>
               <span className="text-2xl font-black text-brand-900 mt-1 block">₹{totalRevenue}</span>
               <span className="text-[11px] text-emerald-600 font-semibold mt-0.5 block">From ₹10 Listing Fees</span>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-subtle">
+            <div className="bg-white p-5 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
               <span className="text-xs text-slate-400 font-bold uppercase block">Active Listings</span>
               <span className="text-2xl font-black text-emerald-700 mt-1 block">{activeProperties}</span>
               <span className="text-[11px] text-slate-400 block">{pendingProperties.length} pending review</span>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-subtle">
+            <div className="bg-white p-5 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
               <span className="text-xs text-slate-400 font-bold uppercase block">Total Enquiries</span>
-              <span className="text-2xl font-black text-blue-700 mt-1 block">{totalEnquiries}</span>
+              <span className="text-2xl font-black text-slate-800 mt-1 block">{totalEnquiries}</span>
               <span className="text-[11px] text-slate-400 block">Direct via Call/WhatsApp/Form</span>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-subtle">
+            <div className="bg-white p-5 rounded-2xl border border-champagne-200/70 shadow-subtle hover:border-champagne-400 hover:shadow-gold transition">
               <span className="text-xs text-slate-400 font-bold uppercase block">Registered Users</span>
               <span className="text-2xl font-black text-slate-900 mt-1 block">{(allUsers || []).length}</span>
-              <span className="text-[11px] text-brand-600 font-semibold block">{customers.length} Customers • {dealers.length} Dealers</span>
+              <span className="text-[11px] text-brand-700 font-semibold block">{customers.length} Customers • {dealers.length} Dealers</span>
             </div>
           </div>
 

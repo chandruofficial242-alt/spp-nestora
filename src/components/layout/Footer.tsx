@@ -18,21 +18,21 @@ export const Footer: React.FC = () => {
   const { t, language, settings, getWhatsAppUrl, getCallUrl } = useApp();
 
   return (
-    <footer className="bg-navy-900 text-slate-300 pt-16 pb-24 md:pb-12 border-t border-slate-800">
+    <footer className="bg-gradient-to-b from-[#021f16] to-[#01120b] text-slate-300 pt-16 pb-24 md:pb-12 border-t border-champagne-400/20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Top Disclaimer & Trust Box */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-12 backdrop-blur-md">
+        <div className="bg-white/5 border border-champagne-300/20 rounded-2xl p-6 mb-12 backdrop-blur-md">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-start space-x-3.5">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 border border-emerald-500/30">
+              <div className="w-10 h-10 rounded-xl bg-brand-800/80 text-champagne-300 flex items-center justify-center flex-shrink-0 border border-champagne-400/30">
                 <ShieldCheck className="w-6 h-6" />
               </div>
               <div>
                 <h4 className="text-white font-bold text-sm">
                   {t.footer.disclaimerTitle}
                 </h4>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed max-w-3xl">
+                <p className="text-xs text-slate-300 mt-1 leading-relaxed max-w-3xl">
                   {t.footer.disclaimerBody}
                 </p>
               </div>
@@ -41,16 +41,16 @@ export const Footer: React.FC = () => {
             <div className="flex items-center space-x-3 w-full md:w-auto flex-shrink-0">
               <a
                 href={getCallUrl()}
-                className="flex-1 md:flex-initial inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                className="flex-1 md:flex-initial inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-brand-700 hover:bg-brand-600 text-white rounded-xl text-xs font-bold transition shadow-gold border border-champagne-400/30"
               >
-                <Phone className="w-3.5 h-3.5" />
+                <Phone className="w-3.5 h-3.5 text-champagne-300" />
                 <span>{language === 'ta' ? 'அழைக்கவும்' : 'Call Desk'}</span>
               </a>
               <a
                 href={getWhatsAppUrl()}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 md:flex-initial inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-navy-950 rounded-xl text-xs font-bold transition shadow-sm"
+                className="flex-1 md:flex-initial inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold transition shadow-sm"
               >
                 <MessageSquare className="w-3.5 h-3.5" />
                 <span>WhatsApp</span>
@@ -60,17 +60,17 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* 4-Column Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-10 pb-12 border-b border-slate-800/80">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-10 pb-12 border-b border-white/10">
           
           {/* Brand Col */}
           <div className="lg:col-span-2 space-y-4">
             <Link to="/" className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-black shadow-md">
-                <Building2 className="w-5 h-5 text-emerald-100" />
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-700 to-brand-950 border border-champagne-400/30 flex items-center justify-center text-white font-black shadow-md">
+                <Building2 className="w-5 h-5 text-champagne-300" />
               </div>
               <div>
                 <span className="text-xl font-black text-white tracking-tight">SPP Nestora</span>
-                <p className="text-[10px] text-emerald-400 font-medium">
+                <p className="text-[10px] text-champagne-300 font-medium">
                   {language === 'ta' ? 'நிலம் | வீடுகள் | வாடகை | சொத்துக்கள்' : 'Land | Houses | Rentals | Properties'}
                 </p>
               </div>
