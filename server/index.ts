@@ -22,12 +22,21 @@ if (process.env.NODE_ENV !== 'test') {
     const adminNewPassword = process.env.ADMIN_NEW_PASSWORD;
     if (adminNewPassword && adminNewPassword.trim().length >= 6) {
       try {
-        console.log('[SPP Nestora Recovery] Detected ADMIN_NEW_PASSWORD in environment. Synchronizing admin credentials...');
-        const res = await db.emergencyResetAdminPasswordAsync(adminNewPassword.trim());
-        if (res.success) {
-          console.log(`[SPP Nestora Recovery] Admin account credentials successfully updated for: ${res.adminEmail}`);
+        await db.waitForInitialization();
+        const trimmed = adminNewPassword.trim();
+        const adminUser = db.getAdminUser();
+        const isAlreadySet = adminUser && db.verifyPassword(adminUser.email, trimmed);
+
+        if (isAlreadySet) {
+          console.log(`[SPP Nestora Recovery] Admin password for ${adminUser.email} is active and verified. (Safe: You can now remove ADMIN_NEW_PASSWORD from Render Environment Variables).`);
         } else {
-          console.warn(`[SPP Nestora Recovery] Admin credential synchronization failed: ${res.error}`);
+          console.log('[SPP Nestora Recovery] Detected ADMIN_NEW_PASSWORD in environment. Synchronizing admin credentials to PostgreSQL...');
+          const res = await db.emergencyResetAdminPasswordAsync(trimmed);
+          if (res.success) {
+            console.log(`[SPP Nestora Recovery] Admin account credentials successfully updated for: ${res.adminEmail}`);
+          } else {
+            console.warn(`[SPP Nestora Recovery] Admin credential synchronization failed: ${res.error}`);
+          }
         }
       } catch (err: any) {
         console.warn(`[SPP Nestora Recovery] Unexpected error during admin recovery:`, err.message || err);

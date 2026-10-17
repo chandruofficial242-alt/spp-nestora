@@ -74,10 +74,19 @@ class RelationalStore {
   private data: DatabaseSchema;
   private pool: pg.Pool | null = null;
   private isPostgresConnected = false;
+  private initPromise: Promise<void>;
 
   constructor() {
     this.data = this.loadInitialData();
-    this.initPostgreSQL();
+    this.initPromise = this.initPostgreSQL();
+  }
+
+  public async waitForInitialization(): Promise<void> {
+    await this.initPromise;
+  }
+
+  public getAdminUser(): DbUser | undefined {
+    return this.data.users.find(u => u.role === 'admin');
   }
 
   private hashPassword(password: string, salt: string): string {
@@ -771,6 +780,7 @@ class RelationalStore {
    * before returning, ensuring CLI processes don't exit before Postgres commits.
    */
   public async emergencyResetAdminPasswordAsync(newPassword: string): Promise<{ success: boolean; adminEmail: string; error?: string }> {
+    await this.initPromise;
     const res = this.emergencyResetAdminPassword(newPassword);
     if (!res.success) return res;
 
