@@ -282,6 +282,9 @@ export async function processUploadedFile(file: Express.Multer.File): Promise<{ 
     try {
       const resourceType = isVideo ? 'video' : 'image';
       const uploadOptions: Record<string, any> = {
+        cloud_name: cloudName,
+        api_key: apiKey || undefined,
+        api_secret: apiSecret || undefined,
         folder: cloudinaryFolder,
         resource_type: resourceType,
         use_filename: true,
