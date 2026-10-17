@@ -13,29 +13,31 @@ function getCleanEnv(val?: string): string {
   return cleaned;
 }
 
-// Environment Variable Resolution
+// Environment Variable Resolution with all common alias support
 const rawCloudinaryUrl = getCleanEnv(process.env.CLOUDINARY_URL);
-let cloudName = getCleanEnv(process.env.CLOUDINARY_CLOUD_NAME) || getCleanEnv(process.env.CLOUD_NAME);
-let apiKey = getCleanEnv(process.env.CLOUDINARY_API_KEY) || getCleanEnv(process.env.CLOUDINARY_KEY);
-let apiSecret = getCleanEnv(process.env.CLOUDINARY_API_SECRET) || getCleanEnv(process.env.CLOUDINARY_SECRET);
-const uploadPreset = getCleanEnv(process.env.CLOUDINARY_UPLOAD_PRESET) || getCleanEnv(process.env.UPLOAD_PRESET);
+let cloudName = getCleanEnv(process.env.CLOUDINARY_CLOUD_NAME) || getCleanEnv(process.env.CLOUD_NAME) || getCleanEnv(process.env.CLOUDINARY_NAME);
+let apiKey = getCleanEnv(process.env.CLOUDINARY_API_KEY) || getCleanEnv(process.env.CLOUDINARY_KEY) || getCleanEnv(process.env.API_KEY) || getCleanEnv(process.env.CLOUDINARY_APIKEY);
+let apiSecret = getCleanEnv(process.env.CLOUDINARY_API_SECRET) || getCleanEnv(process.env.CLOUDINARY_SECRET) || getCleanEnv(process.env.API_SECRET) || getCleanEnv(process.env.CLOUDINARY_APISECRET);
+const uploadPreset = getCleanEnv(process.env.CLOUDINARY_UPLOAD_PRESET) || getCleanEnv(process.env.UPLOAD_PRESET) || getCleanEnv(process.env.CLOUDINARY_PRESET);
 const cloudinaryFolder = getCleanEnv(process.env.CLOUDINARY_FOLDER) || 'spp_nestora/properties';
 
 // Parse CLOUDINARY_URL if provided (Format: cloudinary://API_KEY:API_SECRET@CLOUD_NAME)
 if (rawCloudinaryUrl) {
+  let cleanUrl = rawCloudinaryUrl;
+  if (!cleanUrl.startsWith('cloudinary://') && cleanUrl.includes('@')) {
+    cleanUrl = `cloudinary://${cleanUrl}`;
+  }
   try {
-    const parsed = new URL(rawCloudinaryUrl);
-    if (parsed.protocol === 'cloudinary:') {
-      cloudName = parsed.hostname || cloudName;
-      apiKey = parsed.username || apiKey;
-      apiSecret = parsed.password || apiSecret;
-    }
+    const parsed = new URL(cleanUrl);
+    if (parsed.hostname) cloudName = parsed.hostname;
+    if (parsed.username) apiKey = decodeURIComponent(parsed.username);
+    if (parsed.password) apiSecret = decodeURIComponent(parsed.password);
   } catch {
-    const match = rawCloudinaryUrl.match(/cloudinary:\/\/([^:]+):([^@]+)@(.+)/);
+    const match = cleanUrl.match(/cloudinary:\/\/([^:]+):([^@]+)@(.+)/);
     if (match) {
-      apiKey = match[1] || apiKey;
-      apiSecret = match[2] || apiSecret;
-      cloudName = match[3] || cloudName;
+      apiKey = match[1];
+      apiSecret = match[2];
+      cloudName = match[3];
     }
   }
 }
@@ -290,8 +292,18 @@ export async function processUploadedFile(file: Express.Multer.File): Promise<{ 
         uploadOptions.upload_preset = uploadPreset;
       }
 
-      // Upload to Cloudinary without upload-time transformation to prevent strict transformation 403 rejections
-      const result = await cloudinary.uploader.upload(file.path, uploadOptions);
+      let result;
+      if (apiKey && apiSecret) {
+        // Upload to Cloudinary with API key & secret signature (without upload-time transformation to prevent 403 strict transformation rejections)
+        result = await cloudinary.uploader.upload(file.path, uploadOptions);
+      } else if (uploadPreset) {
+        // Unsigned upload via configured Cloudinary Upload Preset
+        result = await cloudinary.uploader.unsigned_upload(file.path, uploadPreset, uploadOptions);
+      } else if (apiKey && !apiSecret) {
+        throw new Error('CLOUDINARY_API_KEY is set, but CLOUDINARY_API_SECRET is missing in Render environment variables. Both are required for signed uploads.');
+      } else {
+        throw new Error('Cloudinary requires CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET (or CLOUDINARY_UPLOAD_PRESET) in Render environment variables.');
+      }
 
       // Cleanup local temp file
       try {
