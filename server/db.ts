@@ -766,6 +766,31 @@ class RelationalStore {
     return { success: true, adminEmail: admin.email };
   }
 
+  /**
+   * Asynchronous version of emergencyResetAdminPassword that awaits PostgreSQL write
+   * before returning, ensuring CLI processes don't exit before Postgres commits.
+   */
+  public async emergencyResetAdminPasswordAsync(newPassword: string): Promise<{ success: boolean; adminEmail: string; error?: string }> {
+    const res = this.emergencyResetAdminPassword(newPassword);
+    if (!res.success) return res;
+
+    if (this.pool && this.isPostgresConnected) {
+      try {
+        const admin = this.data.users.find(u => u.role === 'admin');
+        if (admin) {
+          await this.pool.query(
+            `UPDATE users SET password_hash = $1, salt = $2, email = $3, reset_token_hash = NULL, reset_token_expiry = NULL WHERE id = $4`,
+            [admin.passwordHash, admin.salt, admin.email, admin.id]
+          );
+        }
+      } catch (err: any) {
+        console.warn('[DB Postgres Sync Error] emergency admin reset async:', err.message);
+      }
+    }
+
+    return res;
+  }
+
   public updateDealerStatus(dealerId: string, status: DealerStatus, reason?: string) {
     const dealer = this.data.users.find(u => u.id === dealerId && u.role === 'dealer');
     if (!dealer) return null;

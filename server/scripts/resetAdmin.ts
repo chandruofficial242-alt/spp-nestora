@@ -37,7 +37,7 @@ async function main() {
   // Allow database initialization to hydrate
   await new Promise(resolve => setTimeout(resolve, 800));
 
-  const result = db.emergencyResetAdminPassword(newPassword);
+  const result = await db.emergencyResetAdminPasswordAsync(newPassword);
 
   if (!result.success) {
     console.error(`Emergency reset failed: ${result.error}`);
