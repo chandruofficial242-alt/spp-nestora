@@ -30,3 +30,11 @@ dist-ssr
 
 # Uploads directory
 uploads/
+
+# Database Backups & Snapshots
+backups/
+*.sql
+
+# Cloudflare Wrangler Local Dev State & Secrets
+.wrangler/
+.dev.vars*

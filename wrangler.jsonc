@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "spp-nestora-api",
+  "main": "server-worker/index.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "BUSINESS_NAME": "SPP Nestora",
+    "OFFICIAL_PHONE": "9715673055",
+    "OFFICIAL_WHATSAPP": "919715673055",
+    "OFFICIAL_EMAIL": "chandruking901@gmail.com",
+    "CLOUDINARY_CLOUD_NAME": "your_cloud_name",
+    "CLOUDINARY_FOLDER": "spp_nestora/properties"
+  }
+}
